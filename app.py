@@ -36,6 +36,50 @@ import numpy as np
 
 from semantic_analyzer import SentenceScore, get_model
 
+import io
+import os
+from typing import List
+
+import matplotlib.pyplot as plt
+import numpy as np
+import streamlit as st
+from dotenv import load_dotenv
+
+from pdf_report import build_pdf_bytes
+from semantic_analyzer import analyze_semantic_consistency, SentenceScore
+
+# ДИАГНОСТИКА ФАЙЛА fact_checker_2026.py
+st.sidebar.header("🔧 Диагностика файла")
+
+try:
+    # Сначала просто прочитаем файл как текст
+    with open('fact_checker_2026.py', 'r', encoding='utf-8') as f:
+        file_content = f.read()
+        st.sidebar.text_area("Содержимое файла (первые 500 символов):", file_content[:500], height=150)
+        
+        # Проверим на наличие явных синтаксических ошибок
+        lines = file_content.split('\n')
+        for i, line in enumerate(lines[:20], 1):
+            if '"""' in line and line.count('"""') % 2 != 0:
+                st.sidebar.error(f"Строка {i}: Непарные кавычки \"\"\"")
+            if "'''" in line and line.count("'''") % 2 != 0:
+                st.sidebar.error(f"Строка {i}: Непарные кавычки '''")
+except Exception as e:
+    st.sidebar.error(f"Не удалось прочитать файл: {e}")
+
+# Теперь попробуем импортировать с обработкой ошибки
+try:
+    from fact_checker_2026 import fact_check_sentences, FactCheckResult
+    st.sidebar.success("✅ Импорт успешен!")
+except SyntaxError as e:
+    st.sidebar.error(f"❌ Синтаксическая ошибка в fact_checker_2026.py: {e}")
+    # Покажем более детальную информацию
+    import traceback
+    st.sidebar.error(traceback.format_exc())
+except Exception as e:
+    st.sidebar.error(f"❌ Другая ошибка: {e}")
+
+# Остальной код...
 
 WIKIPEDIA_API_URL_TEMPLATE = "https://{lang}.wikipedia.org/w/api.php"
 SERPER_URL = "https://google.serper.dev/search"
@@ -626,6 +670,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
