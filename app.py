@@ -1,4 +1,5 @@
 import io
+import os
 from typing import List
 
 import matplotlib.pyplot as plt
@@ -11,7 +12,13 @@ from semantic_analyzer import analyze_semantic_consistency, SentenceScore
 from fact_checker import fact_check_sentences, FactCheckResult
 
 
+# Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
 load_dotenv()
+
+# Если на Streamlit Cloud задан SERPER_API_KEY в st.secrets,
+# пробрасываем его в переменные окружения, чтобы fact_checker мог его использовать.
+if "SERPER_API_KEY" in getattr(st, "secrets", {}):
+    os.environ.setdefault("SERPER_API_KEY", st.secrets["SERPER_API_KEY"])
 
 st.set_page_config(
     page_title="LLM Hallucination Risk Checker",
