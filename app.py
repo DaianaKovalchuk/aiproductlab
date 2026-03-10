@@ -62,6 +62,53 @@ try:
 except Exception as e:
     st.sidebar.error(f"Ошибка чтения файла: {e}")
 
+# ДОБАВЬТЕ ЭТОТ КОД после существующей диагностики
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔍 РАСШИРЕННАЯ ДИАГНОСТИКА")
+
+# 1. Прочитаем файл побайтово, чтобы увидеть скрытые символы
+try:
+    with open(fact_checker_2026.__file__, 'rb') as f:
+        raw_bytes = f.read()[:100]  # Первые 100 байт
+        st.sidebar.write("Первые 100 байт (hex):", raw_bytes.hex())
+        st.sidebar.write("Первые 100 байт (raw):", raw_bytes)
+        
+        # Проверим на BOM (UTF-8 BOM = ef bb bf)
+        if raw_bytes.startswith(b'\xef\xbb\xbf'):
+            st.sidebar.error("❌ Обнаружен BOM в начале файла!")
+        else:
+            st.sidebar.success("✅ BOM не обнаружен")
+except Exception as e:
+    st.sidebar.error(f"Ошибка чтения байтов: {e}")
+
+# 2. Попробуем разные кодировки
+try:
+    with open(fact_checker_2026.__file__, 'r', encoding='utf-8-sig') as f:  # utf-8-sig удаляет BOM
+        content_sig = f.read()[:500]
+        if 'sentence_numbers' in content_sig:
+            st.sidebar.success("✅ 'sentence_numbers' найден с utf-8-sig")
+        else:
+            st.sidebar.error("❌ 'sentence_numbers' НЕ найден с utf-8-sig")
+except Exception as e:
+    st.sidebar.error(f"Ошибка с utf-8-sig: {e}")
+
+try:
+    with open(fact_checker_2026.__file__, 'r', encoding='latin-1') as f:
+        content_latin = f.read()[:500]
+        if 'sentence_numbers' in content_latin:
+            st.sidebar.success("✅ 'sentence_numbers' найден с latin-1")
+        else:
+            st.sidebar.error("❌ 'sentence_numbers' НЕ найден с latin-1")
+except Exception as e:
+    st.sidebar.error(f"Ошибка с latin-1: {e}")
+
+# 3. Проверим, есть ли строка 'sentence_numbers' в памяти класса
+st.sidebar.write("Поля класса из памяти:", list(FactCheckResult.__annotations__.keys()))
+if 'sentence_numbers' in FactCheckResult.__annotations__:
+    st.sidebar.success("✅ 'sentence_numbers' есть в __annotations__")
+else:
+    st.sidebar.error("❌ 'sentence_numbers' НЕТ в __annotations__")
+
 @st.cache_resource
 def load_semantic_model():
     """Кэшируем модель для экономии памяти"""
@@ -226,3 +273,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
