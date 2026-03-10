@@ -1,17 +1,18 @@
 import io
 import os
+import re
+import requests
 from typing import List, Optional, Tuple
+from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 from dotenv import load_dotenv
-import requests
-import re
 from sentence_transformers import SentenceTransformer
 
 from pdf_report import build_pdf_bytes
-from semantic_analyzer import analyze_semantic_consistency, SentenceScore
+from semantic_analyzer import analyze_semantic_consistency, SentenceScore, get_model
 import inspect
 
 # Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
@@ -28,8 +29,7 @@ st.set_page_config(
     layout="centered",
 )
 
-# ========== ВСТРАИВАЕМ ФАКТЧЕКЕР ПРЯМО СЮДА ==========
-from semantic_analyzer import get_model
+# ========== ФАКТЧЕКЕР (ВСТРОЕННЫЙ) ==========
 
 WIKIPEDIA_API_URL_TEMPLATE = "https://{lang}.wikipedia.org/w/api.php"
 SERPER_URL = "https://google.serper.dev/search"
@@ -37,7 +37,6 @@ SERPER_URL = "https://google.serper.dev/search"
 @st.cache_resource
 def load_semantic_model():
     """Кэшируем модель для экономии памяти"""
-    from semantic_analyzer import get_model
     return get_model()
 
 @dataclass
@@ -277,7 +276,7 @@ def fact_check_sentences(
         )
 
     return results
-# ========== КОНЕЦ ВСТРОЕННОГО ФАКТЧЕКЕРА ==========
+# ========== КОНЕЦ ФАКТЧЕКЕРА ==========
 
 # ДИАГНОСТИКА
 st.sidebar.header("🔧 Диагностика")
@@ -296,11 +295,6 @@ try:
         st.sidebar.success("✅ Все поля на месте")
 except Exception as e:
     st.sidebar.error(f"Ошибка проверки: {e}")
-
-@st.cache_resource
-def load_semantic_model():
-    from semantic_analyzer import get_model
-    return get_model()
 
 def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     sims = np.array([s.similarity for s in sentence_scores], dtype=float)
