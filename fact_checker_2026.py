@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 import os
 import re
 import requests
+from sentence_transformers import SentenceTransformer
 import numpy as np
 
 from semantic_analyzer import SentenceScore, get_model
@@ -19,22 +20,30 @@ SERPER_URL = "https://google.serper.dev/search"
 class FactCheckResult:
     """
     Результат фактологической проверки для одного предложения.
+
+    Это плоская структура, которую удобно отображать в UI и PDF:
+    - статус (confirmed / partial / contradicted / no_source);
+    - лучшая найденная выдержка из источника;
+    - числовые характеристики совпадения (similarity, numbers_status и т.п.).
     """
 
     sentence: str
-    status: str  # "confirmed", "partial", "contradicted", "no_source"
+    status: str
     similarity: Optional[float]
     source_title: Optional[str]
     source_snippet: Optional[str]
     source_url: Optional[str]
     sentence_numbers: List[str]
     source_numbers: List[str]
-    numbers_status: str  # "match", "partial", "mismatch", "no_numbers"
+    numbers_status: str
     explanation: str
 
 
 def _looks_fact_dense(sentence: str) -> bool:
-    """Эвристика: предложение «фактоёмкое», если содержит цифры, годы, проценты"""
+    """
+    Эвристика: предложение «фактоёмкое», если содержит цифры, годы,
+    проценты или последовательность слов с заглавной буквы (имена/организации).
+    """
     if re.search(r"\d", sentence):
         return True
 
@@ -47,6 +56,7 @@ def _looks_fact_dense(sentence: str) -> bool:
                 return True
         else:
             caps_runs = 0
+
     return False
 
 
@@ -58,12 +68,17 @@ def _shorten_for_query(sentence: str, max_words: int = 15) -> str:
 
 
 def _extract_numbers(text: str) -> List[str]:
-    """Выделяет все числа из строки."""
+    """
+    Выделяет все числа (включая десятичные через точку/запятую) из строки.
+    """
     return re.findall(r"\d+(?:[.,]\d+)?", text)
 
 
 def _wiki_candidates(query: str, top_k: int = 3) -> List[Tuple[str, str, str]]:
-    """Ищем кандидаты в Википедии."""
+    """
+    Ищем несколько кандидатов в ру- и эн-Википедии.
+    Возвращаем список (lang, title, extract).
+    """
     results: List[Tuple[str, str, str]] = []
     for lang in ("ru", "en"):
         api_url = WIKIPEDIA_API_URL_TEMPLATE.format(lang=lang)
@@ -119,7 +134,11 @@ def _wiki_candidates(query: str, top_k: int = 3) -> List[Tuple[str, str, str]]:
 
 
 def _web_candidates(query: str, max_results: int = 3) -> List[Tuple[str, str, str]]:
-    """Ищем через Serper.dev."""
+    """
+    Ищем сниппеты через Serper.dev (Google Search).
+    Требуется переменная окружения SERPER_API_KEY.
+    Возвращает список (title, snippet, url).
+    """
     api_key = os.environ.get("SERPER_API_KEY")
     if not api_key:
         return []
@@ -165,7 +184,7 @@ def fact_check_sentences(
     sentences: List[SentenceScore], risk_threshold: float = 60.0
 ) -> List[FactCheckResult]:
     """
-    Фактологическая проверка предложений.
+    Фактологическая проверка «подозрительных» предложений по открытым источникам.
     """
     model: SentenceTransformer = get_model()
 
