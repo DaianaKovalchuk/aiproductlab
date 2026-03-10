@@ -3,8 +3,8 @@ import numpy as np
 from dotenv import load_dotenv
 
 from pdf_report import build_pdf_bytes
-from semantic_analyzer import analyze_semantic_consistency, SentenceSc
+from semantic_analyzer import analyze_semantic_consistency  # убрали SentenceSc
 # from fact_checker import fact_check_sentences, FactCheckResult
 
 st.title("Тестовый запуск с импортами")
-st.write("Проверяем импорт semantic_analyzer")
+st.write("Проверяем импорт analyze_semantic_consistency")
