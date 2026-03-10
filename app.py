@@ -11,6 +11,21 @@ from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore
 from fact_checker_2026 import fact_check_sentences, FactCheckResult
 import inspect
+import importlib
+
+# Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
+load_dotenv()
+
+# Если на Streamlit Cloud задан SERPER_API_KEY в st.secrets,
+# пробрасываем его в переменные окружения, чтобы fact_checker мог его использовать.
+if "SERPER_API_KEY" in getattr(st, "secrets", {}):
+    os.environ.setdefault("SERPER_API_KEY", st.secrets["SERPER_API_KEY"])
+
+st.set_page_config(
+    page_title="LLM Hallucination Risk Checker",
+    page_icon="🧠",
+    layout="centered",
+)
 
 # ПРИНУДИТЕЛЬНО ПЕРЕЗАПИСЫВАЕМ ФАЙЛ С ПРАВИЛЬНЫМ СОДЕРЖИМЫМ
 try:
@@ -18,11 +33,7 @@ try:
     import fact_checker_2026
     file_path = fact_checker_2026.__file__
     
-    # Читаем текущее содержимое для диагностики
-    with open(file_path, 'r', encoding='utf-8') as f:
-        current_content = f.read()
-    
-    # Создаем правильное содержимое файла
+    # Создаем правильное содержимое файла fact_checker_2026.py
     correct_content = '''from __future__ import annotations
 
 from dataclasses import dataclass
@@ -36,50 +47,6 @@ import numpy as np
 
 from semantic_analyzer import SentenceScore, get_model
 
-import io
-import os
-from typing import List
-
-import matplotlib.pyplot as plt
-import numpy as np
-import streamlit as st
-from dotenv import load_dotenv
-
-from pdf_report import build_pdf_bytes
-from semantic_analyzer import analyze_semantic_consistency, SentenceScore
-
-# ДИАГНОСТИКА ФАЙЛА fact_checker_2026.py
-st.sidebar.header("🔧 Диагностика файла")
-
-try:
-    # Сначала просто прочитаем файл как текст
-    with open('fact_checker_2026.py', 'r', encoding='utf-8') as f:
-        file_content = f.read()
-        st.sidebar.text_area("Содержимое файла (первые 500 символов):", file_content[:500], height=150)
-        
-        # Проверим на наличие явных синтаксических ошибок
-        lines = file_content.split('\n')
-        for i, line in enumerate(lines[:20], 1):
-            if '"""' in line and line.count('"""') % 2 != 0:
-                st.sidebar.error(f"Строка {i}: Непарные кавычки \"\"\"")
-            if "'''" in line and line.count("'''") % 2 != 0:
-                st.sidebar.error(f"Строка {i}: Непарные кавычки '''")
-except Exception as e:
-    st.sidebar.error(f"Не удалось прочитать файл: {e}")
-
-# Теперь попробуем импортировать с обработкой ошибки
-try:
-    from fact_checker_2026 import fact_check_sentences, FactCheckResult
-    st.sidebar.success("✅ Импорт успешен!")
-except SyntaxError as e:
-    st.sidebar.error(f"❌ Синтаксическая ошибка в fact_checker_2026.py: {e}")
-    # Покажем более детальную информацию
-    import traceback
-    st.sidebar.error(traceback.format_exc())
-except Exception as e:
-    st.sidebar.error(f"❌ Другая ошибка: {e}")
-
-# Остальной код...
 
 WIKIPEDIA_API_URL_TEMPLATE = "https://{lang}.wikipedia.org/w/api.php"
 SERPER_URL = "https://google.serper.dev/search"
@@ -97,14 +64,14 @@ class FactCheckResult:
     """
 
     sentence: str
-    status: str  # "confirmed", "partial", "contradicted", "no_source"
+    status: str
     similarity: Optional[float]
     source_title: Optional[str]
     source_snippet: Optional[str]
     source_url: Optional[str]
     sentence_numbers: List[str]
     source_numbers: List[str]
-    numbers_status: str  # "match", "partial", "mismatch", "no_numbers"
+    numbers_status: str
     explanation: str
 
 
@@ -116,7 +83,6 @@ def _looks_fact_dense(sentence: str) -> bool:
     if re.search(r"\d", sentence):
         return True
 
-    # простая эвристика для имён/сущностей
     tokens = sentence.split()
     caps_runs = 0
     for t in tokens:
@@ -140,7 +106,6 @@ def _shorten_for_query(sentence: str, max_words: int = 15) -> str:
 def _extract_numbers(text: str) -> List[str]:
     """
     Выделяет все числа (включая десятичные через точку/запятую) из строки.
-    Используется для грубого сравнения фактических значений в ответе и источнике.
     """
     return re.findall(r"\d+(?:[.,]\d+)?", text)
 
@@ -198,7 +163,6 @@ def _wiki_candidates(query: str, top_k: int = 3) -> List[Tuple[str, str, str]]:
             if not extract:
                 continue
 
-            # ограничим выдержку по длине
             snippet = extract.split("\n\n")[0][:600]
             results.append((lang, title, snippet))
 
@@ -257,16 +221,6 @@ def fact_check_sentences(
 ) -> List[FactCheckResult]:
     """
     Фактологическая проверка «подозрительных» предложений по открытым источникам.
-
-    - выбираем предложения, которые либо:
-      - имеют риск >= risk_threshold;
-      - выглядят фактоёмкими (цифры, даты, имена и т.п.).
-    - для каждого формируем короткий запрос и ищем статьи в ru/en.wikipedia.org
-      и сниппеты веб-поиска через Serper.dev (если настроен SERPER_API_KEY);
-    - сравниваем семантическую близость предложения и всех кандидатов;
-    - учитываем совпадение/расхождение чисел и дат;
-    - возвращаем статус на уровне предложения (confirmed / partial / contradicted / no_source)
-      с коротким текстовым объяснением для пользователя.
     """
     model: SentenceTransformer = get_model()
 
@@ -301,9 +255,8 @@ def fact_check_sentences(
             )
             continue
 
-        # Семантическое сравнение предложения и всех кандидатов
         all_snippets: List[str] = []
-        meta: List[Tuple[str, str, Optional[str]]] = []  # (label, title, url)
+        meta: List[Tuple[str, str, Optional[str]]] = []
 
         for lang, title, snip in wiki_candidates:
             all_snippets.append(snip)
@@ -322,7 +275,6 @@ def fact_check_sentences(
         label, best_title, best_url = meta[best_idx]
         best_snippet = all_snippets[best_idx]
 
-        # Сравнение чисел/дат, если они есть
         sent_nums_list = _extract_numbers(s.sentence)
         src_nums_list = _extract_numbers(best_snippet)
         sent_nums = set(sent_nums_list)
@@ -381,24 +333,15 @@ def fact_check_sentences(
     
     st.sidebar.success("✅ Файл принудительно перезаписан правильной версией!")
     
-    # Проверяем после записи
-    with open(file_path, 'r', encoding='utf-8') as f:
-        new_content = f.read()
-        if 'sentence_numbers' in new_content:
-            st.sidebar.success("✅ После перезаписи 'sentence_numbers' найден в файле!")
-        else:
-            st.sidebar.error("❌ После перезаписи 'sentence_numbers' ВСЁ ЕЩЁ не найден!")
-            
+    # Перезагружаем модуль после записи
+    importlib.reload(fact_checker_2026)
+    from fact_checker_2026 import fact_check_sentences, FactCheckResult
+    
 except Exception as e:
     st.sidebar.error(f"Ошибка при перезаписи файла: {e}")
 
-# После перезаписи перезагружаем модуль
-import importlib
-import fact_checker_2026
-importlib.reload(fact_checker_2026)
-from fact_checker_2026 import fact_check_sentences, FactCheckResult
-
-st.sidebar.header("🔧 Диагностика после перезаписи")
+# ДИАГНОСТИКА
+st.sidebar.header("🔧 Диагностика")
 
 # 1. Проверка пути к файлу
 try:
@@ -432,23 +375,6 @@ try:
 except Exception as e:
     st.sidebar.error(f"Ошибка чтения файла: {e}")
 
-# Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
-load_dotenv()
-# ... остальной код main() ...
-    
-load_dotenv()
-
-# Если на Streamlit Cloud задан SERPER_API_KEY в st.secrets,
-# пробрасываем его в переменные окружения, чтобы fact_checker мог его использовать.
-if "SERPER_API_KEY" in getattr(st, "secrets", {}):
-    os.environ.setdefault("SERPER_API_KEY", st.secrets["SERPER_API_KEY"])
-
-st.set_page_config(
-    page_title="LLM Hallucination Risk Checker",
-    page_icon="🧠",
-    layout="centered",
-)
-
 @st.cache_resource
 def load_semantic_model():
     """Кэшируем модель для экономии памяти"""
@@ -457,7 +383,6 @@ def load_semantic_model():
 
 def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     sims = np.array([s.similarity for s in sentence_scores], dtype=float)
-    # Переводим в проценты для гистограммы
     sims_pct = sims * 100.0
     return sims_pct
 
@@ -495,13 +420,11 @@ def main():
 
         with st.spinner("Выполняется семантический анализ..."):
             try:
-                # Модель уже загружена через кэш, просто вызываем функцию
                 result = analyze_semantic_consistency(question, answer)
             except Exception as e:
                 st.error(f"Что-то пошло не так при семантическом анализе: {str(e)}")
                 return
 
-        # Фактологическая проверка поверх семантически рискованных / фактоёмких предложений
         try:
             with st.spinner("Проверяем факты по открытым источникам..."):
                 fact_results: List[FactCheckResult] = fact_check_sentences(result.sentence_scores)
@@ -511,16 +434,11 @@ def main():
             fact_check_available = False
             st.warning(f"Фактологическая проверка временно недоступна: {str(e)}")
 
-        # ... остальной код без изменений ...
         col_score, col_meta = st.columns([1, 1.2])
         with col_score:
             st.subheader("Итоговый риск галлюцинаций")
-            st.metric(
-                label="Риск (0–100%)",
-                value=f"{result.overall_risk:.1f}%",
-            )
+            st.metric(label="Риск (0–100%)", value=f"{result.overall_risk:.1f}%")
 
-            # Краткая интерпретация
             risk = result.overall_risk
             if risk < 20:
                 text = "Низкий риск. Ответ в целом согласован с вопросом."
@@ -530,7 +448,6 @@ def main():
                 text = "Повышенный риск. Проверьте основные утверждения и цифры."
             else:
                 text = "Очень высокий риск. Ответ может содержать существенные неточности или уход от вопроса."
-
             st.write(text)
 
         with col_meta:
@@ -545,9 +462,8 @@ def main():
             )
             st.write(f"Число предложений в ответе: **{result.metadata['num_sentences']}**")
 
-     
             if not fact_check_available:
-                st.markdown("**Фактологическая проверка:** временно недоступна. Попробуйте обновить страницу позже.")
+                st.markdown("**Фактологическая проверка:** временно недоступна.")
             elif fact_results:
                 confirmed = sum(1 for fr in fact_results if fr.status == "confirmed")
                 partial = sum(1 for fr in fact_results if fr.status == "partial")
@@ -555,23 +471,18 @@ def main():
                 no_source = sum(1 for fr in fact_results if fr.status == "no_source")
                 total_fc = len(fact_results)
 
-                st.markdown("**Фактологическая проверка (по открытым источникам):**")
+                st.markdown("**Фактологическая проверка:**")
                 st.write(
                     f"- полностью подтверждены: **{confirmed}** из {total_fc}\n"
                     f"- частично подтверждены: **{partial}**\n"
-                    f"- вызывают сомнения / противоречат: **{contradicted}**\n"
-                    f"- подходящих источников не найдено: **{no_source}**"
+                    f"- вызывают сомнения: **{contradicted}**\n"
+                    f"- источников не найдено: **{no_source}**"
                 )
             else:
-                st.markdown("**Фактологическая проверка:** подходящих для проверки предложений не найдено.")
+                st.markdown("**Фактологическая проверка:** подходящих предложений не найдено.")
 
         st.markdown("---")
         st.subheader("Гистограмма согласованности по предложениям")
-        st.caption(
-            "Каждый столбец показывает, сколько предложений из ответа имеют схожесть с вопросом "
-            "в определённом диапазоне. Чем правее и выше столбцы, тем больше фраз близки по смыслу к вопросу."
-        )
-
         sims_pct = _compute_histogram_data(result.sentence_scores)
 
         fig, ax = plt.subplots(figsize=(6, 3))
@@ -580,31 +491,21 @@ def main():
         ax.set_ylabel("Количество предложений")
         ax.set_xlim(0, 100)
         ax.grid(axis="y", alpha=0.2)
-
         st.pyplot(fig, use_container_width=True)
 
-        # Простейшая аналитика по зонам схожести
         low = np.mean(sims_pct < 40) * 100.0
         mid = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100.0
         high = np.mean(sims_pct >= 70) * 100.0
 
         st.markdown(
-            f"- **Низкая схожесть (< 40%)**: примерно {low:.1f}% предложений — потенциально рискованные зоны.\n"
-            f"- **Средняя схожесть (40–70%)**: примерно {mid:.1f}% предложений — стоит выборочно проверить.\n"
-            f"- **Высокая схожесть (> 70%)**: примерно {high:.1f}% предложений — обычно безопасные по смыслу фразы."
+            f"- **Низкая схожесть (< 40%)**: примерно {low:.1f}% предложений\n"
+            f"- **Средняя схожесть (40–70%)**: примерно {mid:.1f}% предложений\n"
+            f"- **Высокая схожесть (> 70%)**: примерно {high:.1f}% предложений"
         )
 
-        st.markdown("### Предложения с повышенным риском (семантика + факты)")
-        st.caption(
-            "Семантический риск показывает, насколько фраза уезжает по смыслу от вопроса. "
-            "Фактологический статус основан на сравнении с русской Википедией и помогает понять, "
-            "подтверждают ли открытые источники это утверждение."
-        )
-
+        st.markdown("### Предложения с повышенным риском")
         risk_threshold = 60.0
         risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
-
-        # Индексируем факт-чеки по тексту предложения для быстрого доступа
         fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
 
         if not risky_sentences:
@@ -612,49 +513,18 @@ def main():
         else:
             for s in risky_sentences:
                 fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
-                st.markdown(
-                    f"- **Семантический риск {s.risk:.1f}% (sim {s.similarity:.2f})** — {s.sentence}"
-                )
+                st.markdown(f"- **Риск {s.risk:.1f}%** — {s.sentence}")
                 if fr:
-                    if fr.status == "confirmed":
-                        status_text = "Фактологически: источники в целом подтверждают утверждение."
-                    elif fr.status == "partial":
-                        status_text = "Фактологически: источники описывают близкий факт, но не дословно — интерпретируйте с осторожностью."
-                    elif fr.status == "contradicted":
-                        status_text = "Фактологически: источники говорят иначе — проверьте внимательно."
-                    else:
-                        status_text = "Фактологически: подходящих источников не найдено, нужна ручная проверка."
-
+                    status_text = {
+                        "confirmed": "✅ Подтверждено",
+                        "partial": "⚠️ Частично подтверждено",
+                        "contradicted": "❌ Противоречит источникам",
+                        "no_source": "❓ Источники не найдены"
+                    }.get(fr.status, "")
                     st.markdown(f"  ↳ *{status_text}*")
-                    # Структурный разбор чисел/дат
-                    if fr.numbers_status != "no_numbers":
-                        if fr.numbers_status == "match":
-                            num_text = "Числа/даты в ответе совпадают с источником."
-                        elif fr.numbers_status == "partial":
-                            num_text = (
-                                "Часть чисел/дат совпадает с источником, но есть расхождения — проверьте внимательно."
-                            )
-                        else:
-                            num_text = "Числа/даты в ответе не совпадают с источником — высокая вероятность ошибки."
-
-                        st.markdown(f"  ↳ {num_text}")
-                        st.markdown(
-                            f"    · В ответе: `{', '.join(fr.sentence_numbers)}`  · В источнике: `{', '.join(fr.source_numbers)}`"
-                        )
-
-                    if fr.source_title:
-                        if fr.source_url:
-                            st.markdown(f"  ↳ Источник: **[{fr.source_title}]({fr.source_url})**")
-                        else:
-                            st.markdown(f"  ↳ Источник: **{fr.source_title}**")
 
         st.markdown("---")
-        st.subheader("Экспорт подробного отчёта")
-        st.caption(
-            "PDF сохраняет ваш вопрос, ответ, общий риск и список рискованных предложений — удобно прикладывать "
-            "к статьям, дипломным работам и редакционным заданиям."
-        )
-
+        st.subheader("Экспорт отчёта")
         try:
             pdf_bytes = build_pdf_bytes(question, answer, result, risk_threshold=risk_threshold)
             st.download_button(
@@ -665,16 +535,7 @@ def main():
                 use_container_width=True,
             )
         except Exception as e:
-            st.error(f"Не удалось сформировать PDF-отчёт: {str(e)}. Попробуйте ещё раз позже или сократите текст.")
-
+            st.error(f"Не удалось сформировать PDF: {str(e)}")
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
