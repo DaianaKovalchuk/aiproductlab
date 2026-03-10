@@ -15,28 +15,20 @@ from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore, get_model
 import inspect
 
-with st.expander("🔍 Отладка фактчекера"):
-    st.write("Количество кандидатов:", len(fact_results))
-    for fr in fact_results:
-        st.write(f"Предложение: {fr.sentence}")
-        st.write(f"Статус: {fr.status}")
-        st.write(f"Источник: {fr.source_title}")
-        st.write(f"URL: {fr.source_url}")
-        st.write("---")
+# Сначала настройка страницы (ДО всего остального)
+st.set_page_config(
+    page_title="LLM Hallucination Risk Checker",
+    page_icon="🧠",
+    layout="centered",
+)
+
+# Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
+load_dotenv()
 
 # Если на Streamlit Cloud задан SERPER_API_KEY в st.secrets,
 # пробрасываем его в переменные окружения.
 if "SERPER_API_KEY" in getattr(st, "secrets", {}):
     os.environ.setdefault("SERPER_API_KEY", st.secrets["SERPER_API_KEY"])
-
-st.set_page_config(
-    page_title="LLM Hallucination Risk Checker",
-    page_icon="🧠",
-    layout="centered",
-
-# Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
-load_dotenv()
-
 
 # ========== ФАКТЧЕКЕР (ВСТРОЕННЫЙ) ==========
 
@@ -353,6 +345,18 @@ def main():
             with st.spinner("Проверяем факты по открытым источникам..."):
                 fact_results: List[FactCheckResult] = fact_check_sentences(result.sentence_scores)
             fact_check_available = True
+            
+            # ОТЛАДКА - теперь здесь, после получения результатов
+            with st.expander("🔍 Отладка фактчекера"):
+                st.write("Количество кандидатов:", len(fact_results))
+                for i, fr in enumerate(fact_results):
+                    st.write(f"**Предложение {i+1}:** {fr.sentence}")
+                    st.write(f"Статус: {fr.status}")
+                    st.write(f"Источник: {fr.source_title}")
+                    st.write(f"URL: {fr.source_url}")
+                    st.write(f"Объяснение: {fr.explanation}")
+                    st.write("---")
+                    
         except Exception as e:
             fact_results = []
             fact_check_available = False
@@ -463,5 +467,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
