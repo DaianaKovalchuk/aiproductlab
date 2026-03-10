@@ -15,12 +15,12 @@ import sys
 
 st.sidebar.header("🔧 Диагностика")
 
-# 1. Проверка пути к файлу
+# 1. Проверка пути к файлу (исправлено на fact_checker_v2)
 try:
-    import fact_checker
-    st.sidebar.write("📁 fact_checker.py путь:", fact_checker.__file__)
+    import fact_checker_v2
+    st.sidebar.write("📁 fact_checker_v2.py путь:", fact_checker_v2.__file__)
 except Exception as e:
-    st.sidebar.error(f"Не удалось импортировать fact_checker: {e}")
+    st.sidebar.error(f"Не удалось импортировать fact_checker_v2: {e}")
 
 # 2. Проверка сигнатуры FactCheckResult
 try:
@@ -37,9 +37,9 @@ try:
 except Exception as e:
     st.sidebar.error(f"Ошибка проверки: {e}")
 
-# 3. Проверка содержимого файла (первые 500 символов)
+# 3. Проверка содержимого файла (исправлено на fact_checker_v2)
 try:
-    with open(fact_checker.__file__, 'r', encoding='utf-8') as f:
+    with open(fact_checker_v2.__file__, 'r', encoding='utf-8') as f:
         content = f.read()[:500]
         if 'sentence_numbers' in content:
             st.sidebar.success("✅ 'sentence_numbers' найден в файле")
@@ -47,23 +47,7 @@ try:
             st.sidebar.error("❌ 'sentence_numbers' НЕ найден в файле")
 except Exception as e:
     st.sidebar.error(f"Ошибка чтения файла: {e}")
-
-import fact_checker
-import importlib
-
-# Принудительно перезагружаем модуль с диска
-importlib.reload(fact_checker)
-from fact_checker import fact_check_sentences, FactCheckResult
-
-# Проверяем ещё раз после перезагрузки
-with open(fact_checker.__file__, 'r', encoding='utf-8') as f:
-    content = f.read()
-    if 'sentence_numbers' in content:
-        st.sidebar.success("✅ После перезагрузки 'sentence_numbers' найден!")
-    else:
-        st.sidebar.error("❌ После перезагрузки 'sentence_numbers' ВСЁ ЕЩЁ не найден!")
-
-# Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
+    
 load_dotenv()
 
 # Если на Streamlit Cloud задан SERPER_API_KEY в st.secrets,
@@ -298,6 +282,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
