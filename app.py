@@ -9,33 +9,17 @@ from dotenv import load_dotenv
 
 from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore
-from fact_checker_v2 import fact_check_sentences, FactCheckResult
+from fact_checker_2026 import fact_check_sentences, FactCheckResult
 import inspect
-import sys
-
-import fact_checker_v2
-import inspect
-
-# Получаем исходный код класса из памяти
-source_code = inspect.getsource(FactCheckResult)
-st.sidebar.code(source_code, language="python")
-
-# Записываем правильную версию обратно в файл
-try:
-    with open(fact_checker_v2.__file__, 'w', encoding='utf-8') as f:
-        f.write(source_code)
-    st.sidebar.success("✅ Файл обновлен правильной версией класса!")
-except Exception as e:
-    st.sidebar.error(f"❌ Не удалось записать файл: {e}")
 
 st.sidebar.header("🔧 Диагностика")
 
-# 1. Проверка пути к файлу (исправлено на fact_checker_v2)
+# 1. Проверка пути к файлу (используем fact_checker_2026)
 try:
-    import fact_checker_v2
-    st.sidebar.write("📁 fact_checker_v2.py путь:", fact_checker_v2.__file__)
+    import fact_checker_2026
+    st.sidebar.write("📁 fact_checker_2026.py путь:", fact_checker_2026.__file__)
 except Exception as e:
-    st.sidebar.error(f"Не удалось импортировать fact_checker_v2: {e}")
+    st.sidebar.error(f"Не удалось импортировать fact_checker_2026: {e}")
 
 # 2. Проверка сигнатуры FactCheckResult
 try:
@@ -52,9 +36,9 @@ try:
 except Exception as e:
     st.sidebar.error(f"Ошибка проверки: {e}")
 
-# 3. Проверка содержимого файла (исправлено на fact_checker_v2)
+# 3. Проверка содержимого файла (используем fact_checker_2026)
 try:
-    with open(fact_checker_v2.__file__, 'r', encoding='utf-8') as f:
+    with open(fact_checker_2026.__file__, 'r', encoding='utf-8') as f:
         content = f.read()[:500]
         if 'sentence_numbers' in content:
             st.sidebar.success("✅ 'sentence_numbers' найден в файле")
@@ -297,6 +281,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
