@@ -15,9 +15,6 @@ from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore, get_model
 import inspect
 
-# Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
-load_dotenv()
-
 with st.expander("🔍 Отладка фактчекера"):
     st.write("Количество кандидатов:", len(fact_results))
     for fr in fact_results:
@@ -36,7 +33,10 @@ st.set_page_config(
     page_title="LLM Hallucination Risk Checker",
     page_icon="🧠",
     layout="centered",
-)
+
+# Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
+load_dotenv()
+
 
 # ========== ФАКТЧЕКЕР (ВСТРОЕННЫЙ) ==========
 
@@ -463,4 +463,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
