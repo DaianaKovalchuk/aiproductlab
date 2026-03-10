@@ -49,6 +49,21 @@ try:
 except Exception as e:
     st.sidebar.error(f"Ошибка чтения файла: {e}")
 
+import fact_checker
+import importlib
+
+# Принудительно перезагружаем модуль с диска
+importlib.reload(fact_checker)
+from fact_checker import fact_check_sentences, FactCheckResult
+
+# Проверяем ещё раз после перезагрузки
+with open(fact_checker.__file__, 'r', encoding='utf-8') as f:
+    content = f.read()
+    if 'sentence_numbers' in content:
+        st.sidebar.success("✅ После перезагрузки 'sentence_numbers' найден!")
+    else:
+        st.sidebar.error("❌ После перезагрузки 'sentence_numbers' ВСЁ ЕЩЁ не найден!")
+
 # Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
 load_dotenv()
 
@@ -284,4 +299,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
