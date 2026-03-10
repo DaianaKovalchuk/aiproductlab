@@ -1,15 +1,17 @@
 import io
 import os
-from typing import List
+from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 from dotenv import load_dotenv
+import requests
+import re
+from sentence_transformers import SentenceTransformer
 
 from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore
-from fact_checker_2026 import fact_check_sentences, FactCheckResult
 import inspect
 
 # Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
@@ -26,17 +28,261 @@ st.set_page_config(
     layout="centered",
 )
 
+# ========== ВСТРАИВАЕМ ФАКТЧЕКЕР ПРЯМО СЮДА ==========
+from semantic_analyzer import get_model
+
+WIKIPEDIA_API_URL_TEMPLATE = "https://{lang}.wikipedia.org/w/api.php"
+SERPER_URL = "https://google.serper.dev/search"
+
+@st.cache_resource
+def load_semantic_model():
+    """Кэшируем модель для экономии памяти"""
+    from semantic_analyzer import get_model
+    return get_model()
+
+@dataclass
+class FactCheckResult:
+    sentence: str
+    status: str
+    similarity: Optional[float]
+    source_title: Optional[str]
+    source_snippet: Optional[str]
+    source_url: Optional[str]
+    sentence_numbers: List[str]
+    source_numbers: List[str]
+    numbers_status: str
+    explanation: str
+
+def _looks_fact_dense(sentence: str) -> bool:
+    if re.search(r"\d", sentence):
+        return True
+    tokens = sentence.split()
+    caps_runs = 0
+    for t in tokens:
+        if re.match(r"[A-ZА-ЯЁ][a-zа-яё]+", t):
+            caps_runs += 1
+            if caps_runs >= 2:
+                return True
+        else:
+            caps_runs = 0
+    return False
+
+def _shorten_for_query(sentence: str, max_words: int = 15) -> str:
+    words = sentence.split()
+    if len(words) <= max_words:
+        return sentence
+    return " ".join(words[:max_words])
+
+def _extract_numbers(text: str) -> List[str]:
+    return re.findall(r"\d+(?:[.,]\d+)?", text)
+
+def _wiki_candidates(query: str, top_k: int = 3) -> List[Tuple[str, str, str]]:
+    results: List[Tuple[str, str, str]] = []
+    for lang in ("ru", "en"):
+        api_url = WIKIPEDIA_API_URL_TEMPLATE.format(lang=lang)
+        params_search = {
+            "action": "query",
+            "list": "search",
+            "srsearch": query,
+            "format": "json",
+            "utf8": 1,
+        }
+        try:
+            resp = requests.get(api_url, params=params_search, timeout=5)
+            data = resp.json()
+        except Exception:
+            continue
+
+        search = data.get("query", {}).get("search", [])
+        if not search:
+            continue
+
+        for item in search[:top_k]:
+            pageid = item["pageid"]
+            title = item["title"]
+
+            params_extract = {
+                "action": "query",
+                "prop": "extracts",
+                "pageids": pageid,
+                "exintro": 1,
+                "explaintext": 1,
+                "format": "json",
+                "utf8": 1,
+            }
+            try:
+                resp2 = requests.get(api_url, params=params_extract, timeout=5)
+                data2 = resp2.json()
+            except Exception:
+                continue
+
+            pages = data2.get("query", {}).get("pages", {})
+            page = pages.get(str(pageid))
+            if not page:
+                continue
+
+            extract = (page.get("extract") or "").strip()
+            if not extract:
+                continue
+
+            snippet = extract.split("\n\n")[0][:600]
+            results.append((lang, title, snippet))
+
+    return results
+
+def _web_candidates(query: str, max_results: int = 3) -> List[Tuple[str, str, str]]:
+    api_key = os.environ.get("SERPER_API_KEY")
+    if not api_key:
+        return []
+
+    try:
+        resp = requests.post(
+            SERPER_URL,
+            headers={
+                "X-API-KEY": api_key,
+                "Content-Type": "application/json",
+            },
+            json={
+                "q": query,
+                "gl": "ru",
+                "hl": "ru",
+                "num": max_results,
+            },
+            timeout=8,
+        )
+        data = resp.json()
+    except Exception:
+        return []
+
+    results: List[Tuple[str, str, str]] = []
+    organic = data.get("organic", []) or data.get("organic_results", [])
+
+    for item in organic[:max_results]:
+        title = item.get("title") or ""
+        snippet = item.get("snippet") or item.get("snippet_highlighted_words") or ""
+        link = item.get("link") or item.get("url") or ""
+        if not snippet:
+            continue
+        if isinstance(snippet, list):
+            snippet_text = " ... ".join(snippet)
+        else:
+            snippet_text = str(snippet)
+        results.append((title, snippet_text[:500], link))
+
+    return results
+
+def fact_check_sentences(
+    sentences: List[SentenceScore], risk_threshold: float = 60.0
+) -> List[FactCheckResult]:
+    model: SentenceTransformer = get_model()
+
+    candidates: List[SentenceScore] = []
+    for s in sentences:
+        if s.risk >= risk_threshold or _looks_fact_dense(s.sentence):
+            candidates.append(s)
+
+    results: List[FactCheckResult] = []
+    if not candidates:
+        return results
+
+    for s in candidates:
+        query = _shorten_for_query(s.sentence)
+        wiki_candidates = _wiki_candidates(query, top_k=3)
+        web_candidates = _web_candidates(query, max_results=3)
+
+        if not wiki_candidates and not web_candidates:
+            results.append(
+                FactCheckResult(
+                    sentence=s.sentence,
+                    status="no_source",
+                    similarity=None,
+                    source_title=None,
+                    source_snippet=None,
+                    source_url=None,
+                    sentence_numbers=[],
+                    source_numbers=[],
+                    numbers_status="no_numbers",
+                    explanation="Подходящие статьи в открытых источниках не найдены. Нужна ручная проверка.",
+                )
+            )
+            continue
+
+        all_snippets: List[str] = []
+        meta: List[Tuple[str, str, Optional[str]]] = []
+
+        for lang, title, snip in wiki_candidates:
+            all_snippets.append(snip)
+            meta.append((f"wikipedia-{lang}", f"{title} ({lang}.wikipedia)", None))
+
+        for title, snip, url in web_candidates:
+            all_snippets.append(snip)
+            meta.append(("web", title, url))
+
+        emb = model.encode([s.sentence] + all_snippets, convert_to_numpy=True, normalize_embeddings=True)
+        sent_emb = emb[0]
+        cand_embs = emb[1:]
+        sims = np.dot(cand_embs, sent_emb)
+        best_idx = int(np.argmax(sims))
+        best_sim = float(sims[best_idx])
+        best_title, best_url = meta[best_idx][1], meta[best_idx][2]
+        best_snippet = all_snippets[best_idx]
+
+        sent_nums_list = _extract_numbers(s.sentence)
+        src_nums_list = _extract_numbers(best_snippet)
+        sent_nums = set(sent_nums_list)
+        src_nums = set(src_nums_list)
+
+        if not sent_nums and not src_nums:
+            numbers_status = "no_numbers"
+            numbers_conflict = False
+        elif sent_nums & src_nums:
+            if sent_nums == src_nums:
+                numbers_status = "match"
+            else:
+                numbers_status = "partial"
+            numbers_conflict = False
+        else:
+            numbers_status = "mismatch"
+            numbers_conflict = True
+
+        if best_sim >= 0.7 and not numbers_conflict:
+            status = "confirmed"
+            explanation = "Смысл предложения хорошо совпадает с описанием в Википедии, явных конфликтов по числам нет."
+        elif best_sim >= 0.55 and not numbers_conflict:
+            status = "partial"
+            explanation = "Источники описывают похожий факт, но формулировки отличаются. Интерпретируйте с осторожностью."
+        elif best_sim <= 0.35 or numbers_conflict:
+            status = "contradicted"
+            if numbers_conflict:
+                explanation = "Цифры/годы в предложении отличаются от тех, что указаны в Википедии. Вероятна ошибка."
+            else:
+                explanation = "Описание в Википедии заметно отличается по смыслу. Проверьте факт."
+        else:
+            status = "no_source"
+            explanation = "Источники дают неоднозначное соответствие. Рекомендуется ручная проверка."
+
+        results.append(
+            FactCheckResult(
+                sentence=s.sentence,
+                status=status,
+                similarity=best_sim,
+                source_title=best_title,
+                source_snippet=best_snippet,
+                source_url=best_url,
+                sentence_numbers=sent_nums_list,
+                source_numbers=src_nums_list,
+                numbers_status=numbers_status,
+                explanation=explanation,
+            )
+        )
+
+    return results
+# ========== КОНЕЦ ВСТРОЕННОГО ФАКТЧЕКЕРА ==========
+
 # ДИАГНОСТИКА
 st.sidebar.header("🔧 Диагностика")
 
-# 1. Проверка пути к файлу
-try:
-    import fact_checker_2026
-    st.sidebar.write("📁 fact_checker_2026.py путь:", fact_checker_2026.__file__)
-except Exception as e:
-    st.sidebar.error(f"Не удалось импортировать fact_checker_2026: {e}")
-
-# 2. Проверка сигнатуры FactCheckResult
+# Проверка сигнатуры FactCheckResult
 try:
     sig = inspect.signature(FactCheckResult.__init__)
     params = list(sig.parameters.keys())
@@ -51,67 +297,8 @@ try:
 except Exception as e:
     st.sidebar.error(f"Ошибка проверки: {e}")
 
-# 3. Проверка содержимого файла
-try:
-    with open(fact_checker_2026.__file__, 'r', encoding='utf-8') as f:
-        content = f.read()[:500]
-        if 'sentence_numbers' in content:
-            st.sidebar.success("✅ 'sentence_numbers' найден в файле")
-        else:
-            st.sidebar.error("❌ 'sentence_numbers' НЕ найден в файле")
-except Exception as e:
-    st.sidebar.error(f"Ошибка чтения файла: {e}")
-
-# ДОБАВЬТЕ ЭТОТ КОД после существующей диагностики
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔍 РАСШИРЕННАЯ ДИАГНОСТИКА")
-
-# 1. Прочитаем файл побайтово, чтобы увидеть скрытые символы
-try:
-    with open(fact_checker_2026.__file__, 'rb') as f:
-        raw_bytes = f.read()[:100]  # Первые 100 байт
-        st.sidebar.write("Первые 100 байт (hex):", raw_bytes.hex())
-        st.sidebar.write("Первые 100 байт (raw):", raw_bytes)
-        
-        # Проверим на BOM (UTF-8 BOM = ef bb bf)
-        if raw_bytes.startswith(b'\xef\xbb\xbf'):
-            st.sidebar.error("❌ Обнаружен BOM в начале файла!")
-        else:
-            st.sidebar.success("✅ BOM не обнаружен")
-except Exception as e:
-    st.sidebar.error(f"Ошибка чтения байтов: {e}")
-
-# 2. Попробуем разные кодировки
-try:
-    with open(fact_checker_2026.__file__, 'r', encoding='utf-8-sig') as f:  # utf-8-sig удаляет BOM
-        content_sig = f.read()[:500]
-        if 'sentence_numbers' in content_sig:
-            st.sidebar.success("✅ 'sentence_numbers' найден с utf-8-sig")
-        else:
-            st.sidebar.error("❌ 'sentence_numbers' НЕ найден с utf-8-sig")
-except Exception as e:
-    st.sidebar.error(f"Ошибка с utf-8-sig: {e}")
-
-try:
-    with open(fact_checker_2026.__file__, 'r', encoding='latin-1') as f:
-        content_latin = f.read()[:500]
-        if 'sentence_numbers' in content_latin:
-            st.sidebar.success("✅ 'sentence_numbers' найден с latin-1")
-        else:
-            st.sidebar.error("❌ 'sentence_numbers' НЕ найден с latin-1")
-except Exception as e:
-    st.sidebar.error(f"Ошибка с latin-1: {e}")
-
-# 3. Проверим, есть ли строка 'sentence_numbers' в памяти класса
-st.sidebar.write("Поля класса из памяти:", list(FactCheckResult.__annotations__.keys()))
-if 'sentence_numbers' in FactCheckResult.__annotations__:
-    st.sidebar.success("✅ 'sentence_numbers' есть в __annotations__")
-else:
-    st.sidebar.error("❌ 'sentence_numbers' НЕТ в __annotations__")
-
 @st.cache_resource
 def load_semantic_model():
-    """Кэшируем модель для экономии памяти"""
     from semantic_analyzer import get_model
     return get_model()
 
@@ -273,4 +460,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
