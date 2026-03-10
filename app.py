@@ -11,6 +11,44 @@ from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore
 from fact_checker import fact_check_sentences, FactCheckResult
 
+import inspect
+import sys
+
+st.sidebar.header("🔧 Диагностика")
+
+# 1. Проверка пути к файлу
+try:
+    import fact_checker
+    st.sidebar.write("📁 fact_checker.py путь:", fact_checker.__file__)
+except Exception as e:
+    st.sidebar.error(f"Не удалось импортировать fact_checker: {e}")
+
+# 2. Проверка сигнатуры FactCheckResult
+try:
+    sig = inspect.signature(FactCheckResult.__init__)
+    params = list(sig.parameters.keys())
+    st.sidebar.write("📋 Параметры __init__:", params)
+    
+    required = ['sentence_numbers', 'source_numbers', 'numbers_status']
+    missing = [f for f in required if f not in params]
+    if missing:
+        st.sidebar.error(f"❌ ОТСУТСТВУЮТ: {missing}")
+    else:
+        st.sidebar.success("✅ Все поля на месте")
+except Exception as e:
+    st.sidebar.error(f"Ошибка проверки: {e}")
+
+# 3. Проверка содержимого файла (первые 500 символов)
+try:
+    with open(fact_checker.__file__, 'r', encoding='utf-8') as f:
+        content = f.read()[:500]
+        if 'sentence_numbers' in content:
+            st.sidebar.success("✅ 'sentence_numbers' найден в файле")
+        else:
+            st.sidebar.error("❌ 'sentence_numbers' НЕ найден в файле")
+except Exception as e:
+    st.sidebar.error(f"Ошибка чтения файла: {e}")
+
 # Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
 load_dotenv()
 
@@ -25,13 +63,11 @@ st.set_page_config(
     layout="centered",
 )
 
-# ========== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ==========
 @st.cache_resource
 def load_semantic_model():
     """Кэшируем модель для экономии памяти"""
     from semantic_analyzer import get_model
     return get_model()
-# ==========================================
 
 def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     sims = np.array([s.similarity for s in sentence_scores], dtype=float)
@@ -123,7 +159,7 @@ def main():
             )
             st.write(f"Число предложений в ответе: **{result.metadata['num_sentences']}**")
 
-            # Сводка фактологической проверки
+     
             if not fact_check_available:
                 st.markdown("**Фактологическая проверка:** временно недоступна. Попробуйте обновить страницу позже.")
             elif fact_results:
@@ -248,3 +284,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
