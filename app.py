@@ -11,7 +11,6 @@ from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore
 from fact_checker import fact_check_sentences, FactCheckResult
 
-
 # Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
 load_dotenv()
 
@@ -26,13 +25,19 @@ st.set_page_config(
     layout="centered",
 )
 
+# ========== ДОБАВЬТЕ ЭТУ ФУНКЦИЮ ==========
+@st.cache_resource
+def load_semantic_model():
+    """Кэшируем модель для экономии памяти"""
+    from semantic_analyzer import get_model
+    return get_model()
+# ==========================================
 
 def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     sims = np.array([s.similarity for s in sentence_scores], dtype=float)
     # Переводим в проценты для гистограммы
     sims_pct = sims * 100.0
     return sims_pct
-
 
 def main():
     st.title("Проверка галлюцинаций LLM")
@@ -68,9 +73,10 @@ def main():
 
         with st.spinner("Выполняется семантический анализ..."):
             try:
+                # Модель уже загружена через кэш, просто вызываем функцию
                 result = analyze_semantic_consistency(question, answer)
-            except Exception:
-                st.error("Что-то пошло не так при семантическом анализе. Попробуйте ещё раз позже.")
+            except Exception as e:
+                st.error(f"Что-то пошло не так при семантическом анализе: {str(e)}")
                 return
 
         # Фактологическая проверка поверх семантически рискованных / фактоёмких предложений
@@ -78,10 +84,12 @@ def main():
             with st.spinner("Проверяем факты по открытым источникам..."):
                 fact_results: List[FactCheckResult] = fact_check_sentences(result.sentence_scores)
             fact_check_available = True
-        except Exception:
+        except Exception as e:
             fact_results = []
             fact_check_available = False
+            st.warning(f"Фактологическая проверка временно недоступна: {str(e)}")
 
+        # ... остальной код без изменений ...
         col_score, col_meta = st.columns([1, 1.2])
         with col_score:
             st.subheader("Итоговый риск галлюцинаций")
@@ -234,8 +242,8 @@ def main():
                 mime="application/pdf",
                 use_container_width=True,
             )
-        except Exception:
-            st.error("Не удалось сформировать PDF-отчёт. Попробуйте ещё раз позже или сократите текст.")
+        except Exception as e:
+            st.error(f"Не удалось сформировать PDF-отчёт: {str(e)}. Попробуйте ещё раз позже или сократите текст.")
 
 
 if __name__ == "__main__":
