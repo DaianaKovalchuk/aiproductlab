@@ -9,8 +9,7 @@ from dotenv import load_dotenv
 
 from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore
-from fact_checker import fact_check_sentences, FactCheckResult
-
+from fact_checker_v2 import fact_check_sentences, FactCheckResult
 import inspect
 import sys
 
@@ -299,5 +298,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
