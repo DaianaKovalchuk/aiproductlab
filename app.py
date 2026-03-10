@@ -18,6 +18,15 @@ import inspect
 # Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
 load_dotenv()
 
+with st.expander("🔍 Отладка фактчекера"):
+    st.write("Количество кандидатов:", len(fact_results))
+    for fr in fact_results:
+        st.write(f"Предложение: {fr.sentence}")
+        st.write(f"Статус: {fr.status}")
+        st.write(f"Источник: {fr.source_title}")
+        st.write(f"URL: {fr.source_url}")
+        st.write("---")
+
 # Если на Streamlit Cloud задан SERPER_API_KEY в st.secrets,
 # пробрасываем его в переменные окружения.
 if "SERPER_API_KEY" in getattr(st, "secrets", {}):
@@ -454,3 +463,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
