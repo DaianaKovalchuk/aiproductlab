@@ -236,7 +236,7 @@ def fact_check_sentences(
         sims = np.dot(cand_embs, sent_emb)
         best_idx = int(np.argmax(sims))
         best_sim = float(sims[best_idx])
-        label, best_title, best_url = meta[best_idx]
+        best_title, best_url = meta[best_idx][1], meta[best_idx][2]
         best_snippet = all_snippets[best_idx]
 
         sent_nums_list = _extract_numbers(s.sentence)
