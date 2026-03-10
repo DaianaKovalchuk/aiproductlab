@@ -13,6 +13,21 @@ from fact_checker_v2 import fact_check_sentences, FactCheckResult
 import inspect
 import sys
 
+import fact_checker_v2
+import inspect
+
+# Получаем исходный код класса из памяти
+source_code = inspect.getsource(FactCheckResult)
+st.sidebar.code(source_code, language="python")
+
+# Записываем правильную версию обратно в файл
+try:
+    with open(fact_checker_v2.__file__, 'w', encoding='utf-8') as f:
+        f.write(source_code)
+    st.sidebar.success("✅ Файл обновлен правильной версией класса!")
+except Exception as e:
+    st.sidebar.error(f"❌ Не удалось записать файл: {e}")
+
 st.sidebar.header("🔧 Диагностика")
 
 # 1. Проверка пути к файлу (исправлено на fact_checker_v2)
@@ -282,6 +297,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
