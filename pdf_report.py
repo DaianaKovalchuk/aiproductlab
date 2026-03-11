@@ -101,5 +101,5 @@ def build_pdf_bytes(question: str, answer: str, result: AnalysisResult, risk_thr
         pdf.set_font('DejaVu', '', 12)
         pdf.cell(0, 10, 'Предложений с повышенным риском не обнаружено.', 0, 1)
     
-    # Возвращаем PDF как байты
+    # ИСПРАВЛЕНО: возвращаем как bytes напрямую
     return pdf.output(dest='S').encode('latin-1')
