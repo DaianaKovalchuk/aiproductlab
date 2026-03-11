@@ -439,8 +439,8 @@ def main():
                 question, 
                 answer, 
                 result, 
-                fact_results,  # Добавляем факт-результаты
-                risk_threshold=risk_threshold
+                fact_results,
+                risk_threshold  
             )
             st.download_button(
                 label="📥 Скачать PDF-отчёт",
@@ -454,3 +454,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
