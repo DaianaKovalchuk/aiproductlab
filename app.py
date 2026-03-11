@@ -13,58 +13,6 @@ from sentence_transformers import SentenceTransformer
 
 from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore, get_model
-import inspect
-
-# ========== ДИАГНОСТИКА API ==========
-def debug_api_key():
-    """Проверка наличия и работы API ключа"""
-    st.sidebar.subheader("🔑 Диагностика API")
-    api_key = os.environ.get("SERPER_API_KEY")
-    
-    if api_key:
-        st.sidebar.success(f"✅ SERPER_API_KEY найден")
-        st.sidebar.code(f"Ключ: {api_key[:5]}...{api_key[-5:]}")
-        
-        # Проверим, работает ли API
-        try:
-            with st.sidebar.status("Тестируем API..."):
-                resp = requests.post(
-                    "https://google.serper.dev/search",
-                    headers={
-                        "X-API-KEY": api_key,
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "q": "Вторая мировая война начало",
-                        "gl": "ru",
-                        "hl": "ru",
-                        "num": 1,
-                    },
-                    timeout=10,
-                )
-                
-                if resp.status_code == 200:
-                    data = resp.json()
-                    st.sidebar.success(f"✅ API работает (статус: {resp.status_code})")
-                    
-                    organic = data.get("organic", [])
-                    if organic:
-                        st.sidebar.write("Первый результат:")
-                        st.sidebar.info(f"**{organic[0].get('title', 'Нет заголовка')}**")
-                    else:
-                        st.sidebar.warning("Поиск не дал результатов")
-                else:
-                    st.sidebar.error(f"❌ API ошибка: статус {resp.status_code}")
-                    st.sidebar.code(resp.text[:200])
-                    
-        except requests.exceptions.Timeout:
-            st.sidebar.error("❌ Таймаут при запросе к API")
-        except requests.exceptions.ConnectionError:
-            st.sidebar.error("❌ Ошибка подключения к API")
-        except Exception as e:
-            st.sidebar.error(f"❌ Неизвестная ошибка: {str(e)}")
-    else:
-        st.sidebar.error("❌ SERPER_API_KEY не найден в окружении")
 
 # ========== НАСТРОЙКА СТРАНИЦЫ ==========
 st.set_page_config(
@@ -329,26 +277,15 @@ def fact_check_sentences(
 
     return results
 
-# ========== ДИАГНОСТИКА ==========
+# ========== МИНИМАЛЬНАЯ ДИАГНОСТИКА ==========
 st.sidebar.header("🔧 Диагностика")
 
-# Проверка сигнатуры FactCheckResult
-try:
-    sig = inspect.signature(FactCheckResult.__init__)
-    params = list(sig.parameters.keys())
-    st.sidebar.write("📋 Параметры __init__:", params)
-    
-    required = ['sentence_numbers', 'source_numbers', 'numbers_status']
-    missing = [f for f in required if f not in params]
-    if missing:
-        st.sidebar.error(f"❌ ОТСУТСТВУЮТ: {missing}")
-    else:
-        st.sidebar.success("✅ Все поля на месте")
-except Exception as e:
-    st.sidebar.error(f"Ошибка проверки: {e}")
-
-# Вызов диагностики API
-debug_api_key()
+# Проверка API ключа (только наличие)
+api_key = os.environ.get("SERPER_API_KEY")
+if api_key:
+    st.sidebar.success("✅ API ключ настроен")
+else:
+    st.sidebar.warning("⚠️ API ключ не найден. Веб-поиск отключён.")
 
 def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     sims = np.array([s.similarity for s in sentence_scores], dtype=float)
@@ -400,52 +337,6 @@ def main():
                 fact_results: List[FactCheckResult] = fact_check_sentences(result.sentence_scores)
             fact_check_available = True
             
-            # ===== ПОДРОБНАЯ ОТЛАДКА =====
-            with st.expander("🔍 Подробная отладка фактчекера"):
-                st.write(f"**Всего предложений для проверки:** {len(result.sentence_scores)}")
-                st.write(f"**Кандидатов с риском ≥60%:** {len(fact_results)}")
-                
-                for i, fr in enumerate(fact_results):
-                    st.markdown(f"### Предложение {i+1}")
-                    st.write(f"**Текст:** {fr.sentence}")
-                    st.write(f"**Статус:** {fr.status}")
-                    st.write(f"**Схожесть:** {fr.similarity}")
-                    st.write(f"**Источник:** {fr.source_title}")
-                    st.write(f"**URL:** {fr.source_url}")
-                    st.write(f"**Объяснение:** {fr.explanation}")
-                    
-                    # Покажем, что искали
-                    query = _shorten_for_query(fr.sentence)
-                    st.write(f"**Поисковый запрос:** {query}")
-                    
-                    # Проверим Wikipedia отдельно
-                    st.write("**Результаты Wikipedia:**")
-                    wiki_results = _wiki_candidates(query, top_k=1)
-                    if wiki_results:
-                        for lang, title, snippet in wiki_results:
-                            st.write(f"- {lang}.wikipedia: {title}")
-                            with st.expander("Показать текст"):
-                                st.write(snippet[:300] + "...")
-                    else:
-                        st.write("  - Ничего не найдено")
-                    
-                    # Проверим веб-поиск отдельно
-                    st.write("**Результаты веб-поиска:**")
-                    web_results = _web_candidates(query, max_results=1)
-                    if web_results:
-                        for title, snippet, url in web_results:
-                            st.write(f"- **{title}**")
-                            st.write(f"  URL: {url}")
-                            with st.expander("Показать текст"):
-                                st.write(snippet[:300] + "...")
-                    else:
-                        if os.environ.get("SERPER_API_KEY"):
-                            st.write("  - Ничего не найдено (поиск не дал результатов)")
-                        else:
-                            st.write("  - ❌ Веб-поиск отключён: нет SERPER_API_KEY")
-                    
-                    st.divider()
-                    
         except Exception as e:
             fact_results = []
             fact_check_available = False
@@ -490,10 +381,10 @@ def main():
 
                 st.markdown("**Фактологическая проверка:**")
                 st.write(
-                    f"- полностью подтверждены: **{confirmed}** из {total_fc}\n"
-                    f"- частично подтверждены: **{partial}**\n"
-                    f"- вызывают сомнения: **{contradicted}**\n"
-                    f"- источников не найдено: **{no_source}**"
+                    f"- ✅ полностью подтверждены: **{confirmed}** из {total_fc}\n"
+                    f"- 🟡 частично подтверждены: **{partial}**\n"
+                    f"- ❌ противоречат источникам: **{contradicted}**\n"
+                    f"- ❓ источников не найдено: **{no_source}**"
                 )
             else:
                 st.markdown("**Фактологическая проверка:** подходящих предложений не найдено.")
@@ -534,7 +425,7 @@ def main():
                 if fr:
                     status_text = {
                         "confirmed": "✅ Подтверждено",
-                        "partial": "⚠️ Частично подтверждено",
+                        "partial": "🟡 Частично подтверждено",
                         "contradicted": "❌ Противоречит источникам",
                         "no_source": "❓ Источники не найдены"
                     }.get(fr.status, "")
@@ -543,9 +434,16 @@ def main():
         st.markdown("---")
         st.subheader("Экспорт отчёта")
         try:
-            pdf_bytes = build_pdf_bytes(question, answer, result, risk_threshold=risk_threshold)
+            # ИСПРАВЛЕНО: добавляем fact_results в вызов
+            pdf_bytes = build_pdf_bytes(
+                question, 
+                answer, 
+                result, 
+                fact_results,  # Добавляем факт-результаты
+                risk_threshold=risk_threshold
+            )
             st.download_button(
-                label="Скачать PDF-отчёт",
+                label="📥 Скачать PDF-отчёт",
                 data=pdf_bytes,
                 file_name="llm_hallucination_report.pdf",
                 mime="application/pdf",
