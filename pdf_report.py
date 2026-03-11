@@ -41,6 +41,7 @@ class PDF(FPDF):
             self.set_font('DejaVu', 'B', 16)
         else:
             self.set_font('helvetica', 'B', 16)
+        # Заголовок всегда короткий, можно оставить cell
         self.cell(0, 10, 'Отчет о проверке галлюцинаций LLM', 0, 1, 'C')
         self.ln(10)
     
@@ -55,6 +56,7 @@ class PDF(FPDF):
     def chapter_title(self, title):
         self.set_font(self.font_loaded and 'DejaVu' or 'helvetica', 'B', 14)
         self.set_fill_color(230, 230, 230)
+        # Заголовки глав тоже короткие
         self.cell(0, 10, title, 0, 1, 'L', 1)
         self.ln(5)
 
@@ -98,14 +100,14 @@ def build_pdf_bytes(
     # ===== МЕТРИКИ =====
     pdf.chapter_title('2. Метрики согласованности')
     
-    # Общий риск
+    # Общий риск - короткая строка, можно cell
     pdf.set_font(main_font, 'B', 14)
     risk_color = (255, 100, 100) if result.overall_risk > 60 else (100, 100, 100)
     pdf.set_text_color(*risk_color)
     pdf.cell(0, 10, f'Общий риск: {result.overall_risk:.1f}%', 0, 1)
     pdf.set_text_color(0, 0, 0)
     
-    # Интерпретация
+    # Интерпретация - может быть длинной, используем multi_cell
     pdf.set_font(main_font, '', 12)
     risk = result.overall_risk
     if risk < 20:
@@ -120,7 +122,7 @@ def build_pdf_bytes(
     pdf.multi_cell(0, 8, interpretation)
     pdf.ln(3)
     
-    # Детальные метрики
+    # Детальные метрики - короткие строки
     pdf.set_font(main_font, '', 11)
     pdf.cell(0, 7, f"• Схожесть вопрос-ответ: {result.metadata['qa_similarity']:.3f}", 0, 1)
     pdf.cell(0, 7, f"• Средняя схожесть предложений: {result.metadata['mean_sentence_similarity']:.3f}", 0, 1)
@@ -162,7 +164,7 @@ def build_pdf_bytes(
                 "no_source": "❓"
             }.get(fr.status, "•")
             
-            # Заголовок предложения
+            # Заголовок предложения - короткий
             pdf.set_font(main_font, 'B', 11)
             pdf.set_fill_color(240, 240, 240)
             pdf.cell(0, 8, f'{status_emoji} Предложение {i}:', 0, 1, 'L', 1)
@@ -181,28 +183,29 @@ def build_pdf_bytes(
                 "contradicted": "Статус: противоречит источникам",
                 "no_source": "Статус: источники не найдены"
             }.get(fr.status, "Статус: неизвестен")
-            pdf.multi_cell(0, 6, status_text)  # Заменили cell на multi_cell
+            pdf.multi_cell(0, 6, status_text)
             
             # Семантическая схожесть
             if fr.similarity:
-                pdf.multi_cell(0, 6, f"Семантическая схожесть: {fr.similarity:.3f}")  # Заменили cell на multi_cell
+                pdf.multi_cell(0, 6, f"Семантическая схожесть: {fr.similarity:.3f}")
             
             # Источник
             if fr.source_title:
                 pdf.set_text_color(0, 0, 255)
-                pdf.multi_cell(0, 6, f"Источник: {fr.source_title}")  # Заменили cell на multi_cell
+                # Заголовок источника может быть длинным
+                pdf.multi_cell(0, 6, f"Источник: {fr.source_title}")
                 pdf.set_text_color(0, 0, 0)
                 if fr.source_url:
                     pdf.set_font(main_font, 'U', 8)
                     # Разбиваем длинный URL на несколько строк
                     url_text = fr.source_url
-                    if len(url_text) > 80:
-                        # Простой способ разбить URL
+                    if len(url_text) > 70:
+                        # Разбиваем URL по кусочкам
                         parts = []
-                        for j in range(0, len(url_text), 80):
-                            parts.append(url_text[j:j+80])
+                        for j in range(0, len(url_text), 70):
+                            parts.append(url_text[j:j+70])
                         url_text = '\n'.join(parts)
-                    pdf.multi_cell(0, 5, url_text)  # Заменили cell на multi_cell
+                    pdf.multi_cell(0, 5, url_text)
                     pdf.set_font(main_font, '', 10)
             
             # Числа/даты
@@ -214,12 +217,14 @@ def build_pdf_bytes(
                 }.get(fr.numbers_status, "")
                 
                 if numbers_text:
-                    pdf.multi_cell(0, 6, numbers_text)  # Заменили cell на multi_cell
+                    pdf.multi_cell(0, 6, numbers_text)
                     pdf.set_font(main_font, '', 9)
                     if fr.sentence_numbers:
-                        pdf.multi_cell(0, 5, f"  В ответе: {', '.join(fr.sentence_numbers)}")  # Заменили cell на multi_cell
+                        nums_text = f"  В ответе: {', '.join(fr.sentence_numbers)}"
+                        pdf.multi_cell(0, 5, nums_text)
                     if fr.source_numbers:
-                        pdf.multi_cell(0, 5, f"  В источнике: {', '.join(fr.source_numbers)}")  # Заменили cell на multi_cell
+                        nums_text = f"  В источнике: {', '.join(fr.source_numbers)}"
+                        pdf.multi_cell(0, 5, nums_text)
                     pdf.set_font(main_font, '', 10)
             
             # Объяснение
@@ -245,9 +250,11 @@ def build_pdf_bytes(
         pdf.chapter_title('4. Предложения с повышенным риском')
         
         for i, s in enumerate(risky_sentences, 1):
+            # Заголовок - короткий
             pdf.set_font(main_font, 'B', 11)
             pdf.cell(0, 7, f'{i}. Риск: {s.risk:.1f}% (схожесть: {s.similarity:.2f})', 0, 1)
             pdf.set_font(main_font, '', 11)
+            # Текст предложения - может быть длинным
             pdf.multi_cell(0, 7, s.sentence)
             pdf.ln(3)
     
