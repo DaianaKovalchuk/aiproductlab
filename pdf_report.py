@@ -1,137 +1,102 @@
-from __future__ import annotations
-
-from datetime import datetime
+import io
 from typing import List
-import os
+from datetime import datetime
 
 from fpdf import FPDF
-
 from semantic_analyzer import AnalysisResult, SentenceScore
 
-
-# Используем системный шрифт Windows, который умеет Unicode/кириллицу.
-FONT_FAMILY = "ArialUni"
-FONT_PATH = r"C:\Windows\Fonts\arial.ttf"
-
-
-def _ensure_unicode_font(pdf: "PDFReport", style: str = "", size: int = 11):
-    """
-    fpdf по умолчанию использует шрифты без поддержки Unicode.
-    Здесь подключаем системный шрифт Arial (TTF) из Windows,
-    который поддерживает русский язык.
-    """
-    if os.path.exists(FONT_PATH):
-        if FONT_FAMILY not in pdf.fonts:
-            pdf.add_font(FONT_FAMILY, "", FONT_PATH, uni=True)
-            pdf.add_font(FONT_FAMILY, "B", FONT_PATH, uni=True)
-            pdf.add_font(FONT_FAMILY, "I", FONT_PATH, uni=True)
-        pdf.set_font(FONT_FAMILY, style, size)
-    else:
-        # Фоллбек: вернёмся к Helvetica (может не поддерживать кириллицу,
-        # но хоть не упадём).
-        base = "Helvetica"
-        pdf.set_font(base, style, size)
-
-
-class PDFReport(FPDF):
+class PDF(FPDF):
+    def __init__(self):
+        super().__init__()
+        # Добавляем поддержку Unicode (кириллицы)
+        self.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+        self.add_font('DejaVu', 'B', 'DejaVuSansCondensed-Bold.ttf', uni=True)
+        
     def header(self):
-        _ensure_unicode_font(self, "B", 14)
-        self.cell(0, 10, "Отчёт по риску галлюцинаций LLM", ln=True, align="L")
-        _ensure_unicode_font(self, "", 9)
-        self.cell(0, 6, datetime.now().strftime("%d.%m.%Y %H:%M"), ln=True, align="L")
-        self.ln(4)
-
+        # Заголовок с поддержкой Unicode
+        self.set_font('DejaVu', 'B', 16)
+        self.cell(0, 10, 'Отчет о проверке галлюцинаций LLM', 0, 1, 'C')
+        self.ln(10)
+    
     def footer(self):
         self.set_y(-15)
-        _ensure_unicode_font(self, "I", 8)
-        page_text = f"Стр. {self.page_no()}"
-        self.cell(0, 10, page_text, 0, 0, "C")
-
-
-def _multi_cell_text(pdf: PDFReport, label: str, text: str, label_width: int = 35):
-    _ensure_unicode_font(pdf, "B", 11)
-    pdf.cell(label_width, 6, label, ln=0)
-    _ensure_unicode_font(pdf, "", 11)
-    pdf.multi_cell(0, 6, text)
-    pdf.ln(2)
-
-
-def _highlight_sentence(pdf: PDFReport, s: SentenceScore, threshold: float):
-    """
-    Вывод одного предложения. Если риск выше порога, подсвечиваем красным цветом.
-    """
-    if s.risk >= threshold:
-        pdf.set_text_color(200, 0, 0)
-    else:
-        pdf.set_text_color(0, 0, 0)
-
-    _ensure_unicode_font(pdf, "", 10)
-    line = f"[риск {s.risk:.1f}% | sim {s.similarity:.2f}] {s.sentence}"
-    pdf.multi_cell(0, 5, line)
-    pdf.ln(1)
-
-    # Сбрасываем цвет
-    pdf.set_text_color(0, 0, 0)
-
+        self.set_font('DejaVu', '', 8)
+        self.cell(0, 10, f'Страница {self.page_no()}', 0, 0, 'C')
 
 def build_pdf_bytes(question: str, answer: str, result: AnalysisResult, risk_threshold: float = 60.0) -> bytes:
     """
-    Собирает PDF-отчёт и возвращает его как bytes.
+    Формирует PDF-отчет о проверке.
     """
-    pdf = PDFReport()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf = PDF()
     pdf.add_page()
-
-    # Общее резюме
-    _multi_cell_text(pdf, "Вопрос:", question)
-    _multi_cell_text(pdf, "Ответ LLM:", answer)
-
-    _ensure_unicode_font(pdf, "B", 12)
-    pdf.cell(0, 8, f"Итоговый риск галлюцинаций: {result.overall_risk:.1f}%", ln=True)
-    pdf.ln(2)
-
-    _ensure_unicode_font(pdf, "", 11)
-    pdf.cell(0, 6, f"Схожесть вопрос–ответ (cosine): {result.metadata.get('qa_similarity', 0.0):.2f}", ln=True)
-    pdf.cell(
-        0,
-        6,
-        f"Средняя схожесть по предложениям: {result.metadata.get('mean_sentence_similarity', 0.0):.2f} "
-        f"(σ={result.metadata.get('std_sentence_similarity', 0.0):.2f})",
-        ln=True,
-    )
-    pdf.cell(0, 6, f"Число предложений в ответе: {result.metadata.get('num_sentences', 0)}", ln=True)
-    pdf.ln(4)
-
-    # Объяснение
-    _ensure_unicode_font(pdf, "B", 11)
-    pdf.cell(0, 6, "Как интерпретировать score:", ln=True)
-    _ensure_unicode_font(pdf, "", 10)
-    pdf.multi_cell(
-        0,
-        5,
-        (
-            "0–20% — низкий риск галлюцинаций, ответ семантически согласован с вопросом.\n"
-            "20–50% — умеренный риск, рекомендуется выборочная проверка фактов.\n"
-            "50–80% — высокий риск, желательно проверить ключевые утверждения.\n"
-            "80–100% — очень высокий риск, ответ вероятно содержит несоответствия или уход в сторону от вопроса."
-        ),
-    )
-    pdf.ln(3)
-
-    # Заголовок для предложений
-    _ensure_unicode_font(pdf, "B", 11)
-    pdf.cell(0, 6, "Предложения с повышенным риском галлюцинаций:", ln=True)
-    pdf.ln(2)
-
-    # Список предложений с подсветкой
-    for s in result.sentence_scores:
-        _highlight_sentence(pdf, s, risk_threshold)
-
-    # В fpdf2 output(dest="S") уже возвращает bytes/bytearray,
-    # поэтому просто приводим к bytes без дополнительного .encode().
-    raw = pdf.output(dest="S")
-    if isinstance(raw, (bytes, bytearray)):
-        return bytes(raw)
-    # На всякий случай fallback для старых версий fpdf
-    return raw.encode("latin1")
-
+    
+    # Используем шрифт с поддержкой Unicode
+    pdf.set_font('DejaVu', '', 12)
+    
+    # Дата и время
+    pdf.set_font('DejaVu', '', 10)
+    pdf.cell(0, 10, f'Дата: {datetime.now().strftime("%d.%m.%Y %H:%M")}', 0, 1)
+    pdf.ln(5)
+    
+    # Вопрос
+    pdf.set_font('DejaVu', 'B', 12)
+    pdf.cell(0, 10, 'Вопрос:', 0, 1)
+    pdf.set_font('DejaVu', '', 12)
+    pdf.multi_cell(0, 10, question)
+    pdf.ln(5)
+    
+    # Ответ
+    pdf.set_font('DejaVu', 'B', 12)
+    pdf.cell(0, 10, 'Ответ:', 0, 1)
+    pdf.set_font('DejaVu', '', 12)
+    pdf.multi_cell(0, 10, answer)
+    pdf.ln(5)
+    
+    # Общий риск
+    pdf.set_font('DejaVu', 'B', 14)
+    pdf.cell(0, 10, f'Общий риск галлюцинаций: {result.overall_risk:.1f}%', 0, 1)
+    pdf.ln(5)
+    
+    # Интерпретация риска
+    pdf.set_font('DejaVu', '', 12)
+    risk = result.overall_risk
+    if risk < 20:
+        interpretation = "Низкий риск. Ответ в целом согласован с вопросом."
+    elif risk < 50:
+        interpretation = "Умеренный риск. Рекомендуется выборочная проверка ключевых фактов."
+    elif risk < 80:
+        interpretation = "Повышенный риск. Проверьте основные утверждения и цифры."
+    else:
+        interpretation = "Очень высокий риск. Ответ может содержать существенные неточности."
+    
+    pdf.multi_cell(0, 10, f'Интерпретация: {interpretation}')
+    pdf.ln(5)
+    
+    # Статистика
+    pdf.set_font('DejaVu', 'B', 12)
+    pdf.cell(0, 10, 'Статистика:', 0, 1)
+    pdf.set_font('DejaVu', '', 12)
+    pdf.cell(0, 10, f'Количество предложений: {result.metadata["num_sentences"]}', 0, 1)
+    pdf.cell(0, 10, f'Средняя схожесть: {result.metadata["mean_sentence_similarity"]:.2f}', 0, 1)
+    pdf.ln(5)
+    
+    # Рискованные предложения
+    risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
+    
+    if risky_sentences:
+        pdf.set_font('DejaVu', 'B', 12)
+        pdf.cell(0, 10, 'Предложения с повышенным риском:', 0, 1)
+        pdf.ln(3)
+        
+        for i, s in enumerate(risky_sentences, 1):
+            pdf.set_font('DejaVu', 'B', 11)
+            pdf.cell(0, 8, f'{i}. Риск: {s.risk:.1f}% (схожесть: {s.similarity:.2f})', 0, 1)
+            pdf.set_font('DejaVu', '', 11)
+            pdf.multi_cell(0, 8, s.sentence)
+            pdf.ln(3)
+    else:
+        pdf.set_font('DejaVu', '', 12)
+        pdf.cell(0, 10, 'Предложений с повышенным риском не обнаружено.', 0, 1)
+    
+    # Возвращаем PDF как байты
+    return pdf.output(dest='S').encode('latin-1')
