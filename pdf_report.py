@@ -5,12 +5,12 @@ import os
 
 from fpdf import FPDF
 from semantic_analyzer import AnalysisResult, SentenceScore
+from fact_checker import FactCheckResult
 
 class PDF(FPDF):
     def __init__(self):
         super().__init__()
         # Используем встроенный шрифт с поддержкой Unicode через DejaVu
-        # Если файлы шрифтов есть в папке - они подключатся
         font_dir = os.path.dirname(os.path.abspath(__file__))
         dejavu_regular = os.path.join(font_dir, 'DejaVuSansCondensed.ttf')
         dejavu_bold = os.path.join(font_dir, 'DejaVuSansCondensed-Bold.ttf')
@@ -37,104 +37,222 @@ class PDF(FPDF):
         else:
             self.set_font('helvetica', '', 8)
         self.cell(0, 10, f'Страница {self.page_no()}', 0, 0, 'C')
+    
+    def chapter_title(self, title):
+        self.set_font(self.font_loaded and 'DejaVu' or 'helvetica', 'B', 14)
+        self.set_fill_color(230, 230, 230)
+        self.cell(0, 10, title, 0, 1, 'L', 1)
+        self.ln(5)
+    
+    def chapter_body(self, text):
+        self.set_font(self.font_loaded and 'DejaVu' or 'helvetica', '', 12)
+        self.multi_cell(0, 8, text)
+        self.ln(3)
 
-def build_pdf_bytes(question: str, answer: str, result: AnalysisResult, risk_threshold: float = 60.0) -> bytes:
+def build_pdf_bytes(
+    question: str, 
+    answer: str, 
+    result: AnalysisResult, 
+    fact_results: List[FactCheckResult],  # Добавляем факт-результаты
+    risk_threshold: float = 60.0
+) -> bytes:
     """
-    Формирует PDF-отчет о проверке с поддержкой кириллицы.
+    Формирует PDF-отчет о проверке с полной фактологической информацией.
     """
     pdf = PDF()
     pdf.add_page()
     
     # Выбираем шрифт в зависимости от наличия DejaVu
-    if pdf.font_loaded:
-        main_font = 'DejaVu'
-    else:
-        main_font = 'helvetica'
+    main_font = 'DejaVu' if pdf.font_loaded else 'helvetica'
     
-    # Дата и время
+    # ===== ЗАГОЛОВОК =====
+    pdf.set_font(main_font, 'B', 20)
+    pdf.cell(0, 15, 'Анализ галлюцинаций LLM', 0, 1, 'C')
     pdf.set_font(main_font, '', 10)
-    pdf.cell(0, 10, f'Дата: {datetime.now().strftime("%d.%m.%Y %H:%M")}', 0, 1)
-    pdf.ln(5)
+    pdf.cell(0, 8, f'Сгенерировано: {datetime.now().strftime("%d.%m.%Y %H:%M")}', 0, 1, 'C')
+    pdf.ln(10)
     
-    # Вопрос
+    # ===== ОСНОВНАЯ ИНФОРМАЦИЯ =====
+    pdf.chapter_title('1. Исходные данные')
     pdf.set_font(main_font, 'B', 12)
-    pdf.cell(0, 10, 'Вопрос:', 0, 1)
+    pdf.cell(0, 8, 'Вопрос:', 0, 1)
     pdf.set_font(main_font, '', 12)
+    pdf.multi_cell(0, 8, question)
+    pdf.ln(3)
     
-    # Для helvetica нужно кодировать, для DejaVu - нет
-    if main_font == 'helvetica':
-        pdf.multi_cell(0, 10, question.encode('latin-1', 'ignore').decode('latin-1'))
-    else:
-        pdf.multi_cell(0, 10, question)
-    pdf.ln(5)
-    
-    # Ответ
     pdf.set_font(main_font, 'B', 12)
-    pdf.cell(0, 10, 'Ответ:', 0, 1)
+    pdf.cell(0, 8, 'Ответ:', 0, 1)
     pdf.set_font(main_font, '', 12)
-    
-    if main_font == 'helvetica':
-        pdf.multi_cell(0, 10, answer.encode('latin-1', 'ignore').decode('latin-1'))
-    else:
-        pdf.multi_cell(0, 10, answer)
+    pdf.multi_cell(0, 8, answer)
     pdf.ln(5)
+    
+    # ===== МЕТРИКИ =====
+    pdf.chapter_title('2. Метрики согласованности')
     
     # Общий риск
     pdf.set_font(main_font, 'B', 14)
-    pdf.cell(0, 10, f'Общий риск галлюцинаций: {result.overall_risk:.1f}%', 0, 1)
-    pdf.ln(5)
+    risk_color = (255, 100, 100) if result.overall_risk > 60 else (100, 100, 100)
+    pdf.set_text_color(*risk_color)
+    pdf.cell(0, 10, f'Общий риск: {result.overall_risk:.1f}%', 0, 1)
+    pdf.set_text_color(0, 0, 0)
     
-    # Интерпретация риска
+    # Интерпретация
     pdf.set_font(main_font, '', 12)
     risk = result.overall_risk
     if risk < 20:
-        interpretation = "Низкий риск. Ответ в целом согласован с вопросом."
+        interpretation = "✅ Низкий риск. Ответ в целом согласован с вопросом."
     elif risk < 50:
-        interpretation = "Умеренный риск. Рекомендуется выборочная проверка ключевых фактов."
+        interpretation = "⚠️ Умеренный риск. Рекомендуется выборочная проверка ключевых фактов."
     elif risk < 80:
-        interpretation = "Повышенный риск. Проверьте основные утверждения и цифры."
+        interpretation = "⚠️⚠️ Повышенный риск. Проверьте основные утверждения и цифры."
     else:
-        interpretation = "Очень высокий риск. Ответ может содержать существенные неточности."
+        interpretation = "❌ Очень высокий риск. Ответ может содержать существенные неточности."
     
-    if main_font == 'helvetica':
-        pdf.multi_cell(0, 10, interpretation.encode('latin-1', 'ignore').decode('latin-1'))
-    else:
-        pdf.multi_cell(0, 10, interpretation)
+    pdf.multi_cell(0, 8, interpretation)
+    pdf.ln(3)
+    
+    # Детальные метрики
+    pdf.set_font(main_font, '', 11)
+    pdf.cell(0, 7, f"• Схожесть вопрос-ответ: {result.metadata['qa_similarity']:.3f}", 0, 1)
+    pdf.cell(0, 7, f"• Средняя схожесть предложений: {result.metadata['mean_sentence_similarity']:.3f}", 0, 1)
+    pdf.cell(0, 7, f"• Стандартное отклонение: {result.metadata['std_sentence_similarity']:.3f}", 0, 1)
+    pdf.cell(0, 7, f"• Всего предложений: {result.metadata['num_sentences']}", 0, 1)
     pdf.ln(5)
     
-    # Статистика
-    pdf.set_font(main_font, 'B', 12)
-    pdf.cell(0, 10, 'Статистика:', 0, 1)
-    pdf.set_font(main_font, '', 12)
-    pdf.cell(0, 10, f'Количество предложений: {result.metadata["num_sentences"]}', 0, 1)
-    pdf.cell(0, 10, f'Средняя схожесть: {result.metadata["mean_sentence_similarity"]:.2f}', 0, 1)
-    pdf.ln(5)
+    # ===== ФАКТОЛОГИЧЕСКАЯ ПРОВЕРКА =====
+    pdf.chapter_title('3. Фактологическая проверка')
     
-    # Рискованные предложения
-    risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
-    
-    if risky_sentences:
-        pdf.set_font(main_font, 'B', 12)
-        pdf.cell(0, 10, 'Предложения с повышенным риском:', 0, 1)
-        pdf.ln(3)
+    # Статистика по фактам
+    if fact_results:
+        confirmed = sum(1 for fr in fact_results if fr.status == "confirmed")
+        partial = sum(1 for fr in fact_results if fr.status == "partial")
+        contradicted = sum(1 for fr in fact_results if fr.status == "contradicted")
+        no_source = sum(1 for fr in fact_results if fr.status == "no_source")
+        total = len(fact_results)
         
-        for i, s in enumerate(risky_sentences, 1):
-            pdf.set_font(main_font, 'B', 11)
-            pdf.cell(0, 8, f'{i}. Риск: {s.risk:.1f}% (схожесть: {s.similarity:.2f})', 0, 1)
-            pdf.set_font(main_font, '', 11)
+        pdf.set_font(main_font, 'B', 12)
+        pdf.cell(0, 8, f'Всего проверено предложений: {total}', 0, 1)
+        pdf.set_font(main_font, '', 11)
+        pdf.cell(0, 7, f'✅ Полностью подтверждены: {confirmed}', 0, 1)
+        pdf.cell(0, 7, f'🟡 Частично подтверждены: {partial}', 0, 1)
+        pdf.cell(0, 7, f'❌ Противоречат источникам: {contradicted}', 0, 1)
+        pdf.cell(0, 7, f'❓ Источники не найдены: {no_source}', 0, 1)
+        pdf.ln(5)
+        
+        # Детальный разбор каждого предложения
+        pdf.set_font(main_font, 'B', 12)
+        pdf.cell(0, 8, 'Детальный разбор предложений:', 0, 1)
+        pdf.ln(2)
+        
+        for i, fr in enumerate(fact_results, 1):
+            # Статус с эмодзи
+            status_emoji = {
+                "confirmed": "✅",
+                "partial": "🟡",
+                "contradicted": "❌",
+                "no_source": "❓"
+            }.get(fr.status, "•")
             
-            if main_font == 'helvetica':
-                pdf.multi_cell(0, 8, s.sentence.encode('latin-1', 'ignore').decode('latin-1'))
-            else:
-                pdf.multi_cell(0, 8, s.sentence)
+            # Заголовок предложения
+            pdf.set_font(main_font, 'B', 11)
+            pdf.set_fill_color(240, 240, 240)
+            pdf.cell(0, 8, f'{status_emoji} Предложение {i}:', 0, 1, 'L', 1)
+            
+            # Текст предложения
+            pdf.set_font(main_font, '', 10)
+            pdf.multi_cell(0, 6, fr.sentence)
+            
+            # Информация о проверке
+            pdf.set_font(main_font, 'I', 10)
+            
+            # Статус проверки
+            status_text = {
+                "confirmed": "Статус: подтверждено",
+                "partial": "Статус: частично подтверждено",
+                "contradicted": "Статус: противоречит источникам",
+                "no_source": "Статус: источники не найдены"
+            }.get(fr.status, "Статус: неизвестен")
+            pdf.cell(0, 6, status_text, 0, 1)
+            
+            # Семантическая схожесть
+            if fr.similarity:
+                pdf.cell(0, 6, f"Семантическая схожесть: {fr.similarity:.3f}", 0, 1)
+            
+            # Источник
+            if fr.source_title:
+                pdf.set_text_color(0, 0, 255)
+                pdf.cell(0, 6, f"Источник: {fr.source_title}", 0, 1)
+                pdf.set_text_color(0, 0, 0)
+                if fr.source_url:
+                    pdf.set_font(main_font, 'U', 8)
+                    pdf.cell(0, 5, fr.source_url, 0, 1)
+                    pdf.set_font(main_font, '', 10)
+            
+            # Числа/даты
+            if fr.numbers_status != "no_numbers" and (fr.sentence_numbers or fr.source_numbers):
+                numbers_text = {
+                    "match": "✅ Числа совпадают",
+                    "partial": "🟡 Числа совпадают частично",
+                    "mismatch": "❌ Числа не совпадают"
+                }.get(fr.numbers_status, "")
+                
+                if numbers_text:
+                    pdf.cell(0, 6, numbers_text, 0, 1)
+                    pdf.set_font(main_font, '', 9)
+                    if fr.sentence_numbers:
+                        pdf.cell(0, 5, f"  В ответе: {', '.join(fr.sentence_numbers)}", 0, 1)
+                    if fr.source_numbers:
+                        pdf.cell(0, 5, f"  В источнике: {', '.join(fr.source_numbers)}", 0, 1)
+                    pdf.set_font(main_font, '', 10)
+            
+            # Объяснение
+            if fr.explanation:
+                pdf.set_font(main_font, 'I', 9)
+                pdf.multi_cell(0, 5, f"Пояснение: {fr.explanation}")
+            
+            pdf.ln(5)
+            
+            # Разделитель
+            pdf.set_draw_color(200, 200, 200)
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(3)
     else:
         pdf.set_font(main_font, '', 12)
-        text = "Предложений с повышенным риском не обнаружено."
-        if main_font == 'helvetica':
-            pdf.cell(0, 10, text.encode('latin-1', 'ignore').decode('latin-1'), 0, 1)
-        else:
-            pdf.cell(0, 10, text, 0, 1)
+        pdf.multi_cell(0, 8, "Фактологическая проверка не проводилась или не дала результатов.")
+        pdf.ln(5)
+    
+    # ===== РИСКОВАННЫЕ ПРЕДЛОЖЕНИЯ =====
+    risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
+    
+    if risky_sentences:
+        pdf.chapter_title('4. Предложения с повышенным риском')
+        
+        for i, s in enumerate(risky_sentences, 1):
+            pdf.set_font(main_font, 'B', 11)
+            pdf.cell(0, 7, f'{i}. Риск: {s.risk:.1f}% (схожесть: {s.similarity:.2f})', 0, 1)
+            pdf.set_font(main_font, '', 11)
+            pdf.multi_cell(0, 7, s.sentence)
+            pdf.ln(3)
+    
+    # ===== ИТОГОВЫЕ ВЫВОДЫ =====
+    pdf.chapter_title('5. Рекомендации')
+    pdf.set_font(main_font, '', 11)
+    
+    recommendations = []
+    if result.overall_risk > 60:
+        recommendations.append("• Высокий риск галлюцинаций - требуется тщательная проверка всех фактов")
+    if contradicted > 0:
+        recommendations.append(f"• Найдено {contradicted} противоречий с источниками - проверьте эти утверждения")
+    if no_source > 0:
+        recommendations.append(f"• Для {no_source} утверждений не найдено источников - требуется ручная проверка")
+    if result.metadata['std_sentence_similarity'] > 0.2:
+        recommendations.append("• Высокий разброс в схожести предложений - ответ стилистически неоднороден")
+    
+    if not recommendations:
+        recommendations.append("• Ответ выглядит согласованным, но рекомендуем выборочно проверить ключевые факты")
+    
+    for rec in recommendations:
+        pdf.multi_cell(0, 7, rec)
     
     # Получаем PDF как байты
     pdf_output = pdf.output(dest='S')
