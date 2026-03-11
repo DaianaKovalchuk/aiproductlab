@@ -2,12 +2,12 @@ import io
 from typing import List, Optional
 from datetime import datetime
 import os
-from dataclasses import dataclass  # ВАЖНО: добавлен этот импорт
+from dataclasses import dataclass
 
 from fpdf import FPDF
 from semantic_analyzer import AnalysisResult, SentenceScore
 
-# Определяем класс FactCheckResult прямо здесь, чтобы не зависеть от app.py
+# Определяем класс FactCheckResult прямо здесь
 @dataclass
 class FactCheckResult:
     sentence: str
@@ -28,10 +28,13 @@ class PDF(FPDF):
         font_dir = os.path.dirname(os.path.abspath(__file__))
         dejavu_regular = os.path.join(font_dir, 'DejaVuSansCondensed.ttf')
         dejavu_bold = os.path.join(font_dir, 'DejaVuSansCondensed-Bold.ttf')
+        dejavu_italic = os.path.join(font_dir, 'DejaVuSansCondensed-Oblique.ttf')  # Добавляем курсив
         
         if os.path.exists(dejavu_regular) and os.path.exists(dejavu_bold):
             self.add_font('DejaVu', '', dejavu_regular, uni=True)
             self.add_font('DejaVu', 'B', dejavu_bold, uni=True)
+            if os.path.exists(dejavu_italic):
+                self.add_font('DejaVu', 'I', dejavu_italic, uni=True)
             self.font_loaded = True
         else:
             self.font_loaded = False
@@ -57,11 +60,6 @@ class PDF(FPDF):
         self.set_fill_color(230, 230, 230)
         self.cell(0, 10, title, 0, 1, 'L', 1)
         self.ln(5)
-    
-    def chapter_body(self, text):
-        self.set_font(self.font_loaded and 'DejaVu' or 'helvetica', '', 12)
-        self.multi_cell(0, 8, text)
-        self.ln(3)
 
 def build_pdf_bytes(
     question: str, 
@@ -77,7 +75,13 @@ def build_pdf_bytes(
     pdf.add_page()
     
     # Выбираем шрифт в зависимости от наличия DejaVu
-    main_font = 'DejaVu' if pdf.font_loaded else 'helvetica'
+    if pdf.font_loaded:
+        main_font = 'DejaVu'
+        # Если нет курсива, будем использовать обычный шрифт вместо него
+        italic_available = True
+    else:
+        main_font = 'helvetica'
+        italic_available = False
     
     # ===== ЗАГОЛОВОК =====
     pdf.set_font(main_font, 'B', 20)
@@ -176,8 +180,8 @@ def build_pdf_bytes(
             pdf.set_font(main_font, '', 10)
             pdf.multi_cell(0, 6, fr.sentence)
             
-            # Информация о проверке
-            pdf.set_font(main_font, 'I', 10)
+            # Информация о проверке (используем обычный шрифт вместо курсива)
+            pdf.set_font(main_font, '', 10)  # Убрали 'I'
             
             # Статус проверки
             status_text = {
@@ -219,9 +223,9 @@ def build_pdf_bytes(
                         pdf.cell(0, 5, f"  В источнике: {', '.join(fr.source_numbers)}", 0, 1)
                     pdf.set_font(main_font, '', 10)
             
-            # Объяснение
+            # Объяснение (используем обычный шрифт вместо курсива)
             if fr.explanation:
-                pdf.set_font(main_font, 'I', 9)
+                pdf.set_font(main_font, '', 9)  # Убрали 'I'
                 pdf.multi_cell(0, 5, f"Пояснение: {fr.explanation}")
             
             pdf.ln(5)
