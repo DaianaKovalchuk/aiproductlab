@@ -28,13 +28,10 @@ class PDF(FPDF):
         font_dir = os.path.dirname(os.path.abspath(__file__))
         dejavu_regular = os.path.join(font_dir, 'DejaVuSansCondensed.ttf')
         dejavu_bold = os.path.join(font_dir, 'DejaVuSansCondensed-Bold.ttf')
-        dejavu_italic = os.path.join(font_dir, 'DejaVuSansCondensed-Oblique.ttf')  # Добавляем курсив
         
         if os.path.exists(dejavu_regular) and os.path.exists(dejavu_bold):
             self.add_font('DejaVu', '', dejavu_regular, uni=True)
             self.add_font('DejaVu', 'B', dejavu_bold, uni=True)
-            if os.path.exists(dejavu_italic):
-                self.add_font('DejaVu', 'I', dejavu_italic, uni=True)
             self.font_loaded = True
         else:
             self.font_loaded = False
@@ -75,13 +72,7 @@ def build_pdf_bytes(
     pdf.add_page()
     
     # Выбираем шрифт в зависимости от наличия DejaVu
-    if pdf.font_loaded:
-        main_font = 'DejaVu'
-        # Если нет курсива, будем использовать обычный шрифт вместо него
-        italic_available = True
-    else:
-        main_font = 'helvetica'
-        italic_available = False
+    main_font = 'DejaVu' if pdf.font_loaded else 'helvetica'
     
     # ===== ЗАГОЛОВОК =====
     pdf.set_font(main_font, 'B', 20)
@@ -176,12 +167,12 @@ def build_pdf_bytes(
             pdf.set_fill_color(240, 240, 240)
             pdf.cell(0, 8, f'{status_emoji} Предложение {i}:', 0, 1, 'L', 1)
             
-            # Текст предложения
+            # Текст предложения - используем multi_cell для длинных текстов
             pdf.set_font(main_font, '', 10)
             pdf.multi_cell(0, 6, fr.sentence)
             
-            # Информация о проверке (используем обычный шрифт вместо курсива)
-            pdf.set_font(main_font, '', 10)  # Убрали 'I'
+            # Информация о проверке
+            pdf.set_font(main_font, '', 10)
             
             # Статус проверки
             status_text = {
@@ -190,20 +181,28 @@ def build_pdf_bytes(
                 "contradicted": "Статус: противоречит источникам",
                 "no_source": "Статус: источники не найдены"
             }.get(fr.status, "Статус: неизвестен")
-            pdf.cell(0, 6, status_text, 0, 1)
+            pdf.multi_cell(0, 6, status_text)  # Заменили cell на multi_cell
             
             # Семантическая схожесть
             if fr.similarity:
-                pdf.cell(0, 6, f"Семантическая схожесть: {fr.similarity:.3f}", 0, 1)
+                pdf.multi_cell(0, 6, f"Семантическая схожесть: {fr.similarity:.3f}")  # Заменили cell на multi_cell
             
             # Источник
             if fr.source_title:
                 pdf.set_text_color(0, 0, 255)
-                pdf.cell(0, 6, f"Источник: {fr.source_title}", 0, 1)
+                pdf.multi_cell(0, 6, f"Источник: {fr.source_title}")  # Заменили cell на multi_cell
                 pdf.set_text_color(0, 0, 0)
                 if fr.source_url:
                     pdf.set_font(main_font, 'U', 8)
-                    pdf.cell(0, 5, fr.source_url, 0, 1)
+                    # Разбиваем длинный URL на несколько строк
+                    url_text = fr.source_url
+                    if len(url_text) > 80:
+                        # Простой способ разбить URL
+                        parts = []
+                        for j in range(0, len(url_text), 80):
+                            parts.append(url_text[j:j+80])
+                        url_text = '\n'.join(parts)
+                    pdf.multi_cell(0, 5, url_text)  # Заменили cell на multi_cell
                     pdf.set_font(main_font, '', 10)
             
             # Числа/даты
@@ -215,17 +214,17 @@ def build_pdf_bytes(
                 }.get(fr.numbers_status, "")
                 
                 if numbers_text:
-                    pdf.cell(0, 6, numbers_text, 0, 1)
+                    pdf.multi_cell(0, 6, numbers_text)  # Заменили cell на multi_cell
                     pdf.set_font(main_font, '', 9)
                     if fr.sentence_numbers:
-                        pdf.cell(0, 5, f"  В ответе: {', '.join(fr.sentence_numbers)}", 0, 1)
+                        pdf.multi_cell(0, 5, f"  В ответе: {', '.join(fr.sentence_numbers)}")  # Заменили cell на multi_cell
                     if fr.source_numbers:
-                        pdf.cell(0, 5, f"  В источнике: {', '.join(fr.source_numbers)}", 0, 1)
+                        pdf.multi_cell(0, 5, f"  В источнике: {', '.join(fr.source_numbers)}")  # Заменили cell на multi_cell
                     pdf.set_font(main_font, '', 10)
             
-            # Объяснение (используем обычный шрифт вместо курсива)
+            # Объяснение
             if fr.explanation:
-                pdf.set_font(main_font, '', 9)  # Убрали 'I'
+                pdf.set_font(main_font, '', 9)
                 pdf.multi_cell(0, 5, f"Пояснение: {fr.explanation}")
             
             pdf.ln(5)
