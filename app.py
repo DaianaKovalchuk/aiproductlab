@@ -15,6 +15,61 @@ from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore, get_model
 import inspect
 
+# Добавьте после импортов, перед main()
+def debug_api_key():
+    """Проверка наличия и работы API ключа"""
+    st.sidebar.subheader("🔑 Диагностика API")
+    api_key = os.environ.get("SERPER_API_KEY")
+    
+    if api_key:
+        st.sidebar.success(f"✅ SERPER_API_KEY найден")
+        st.sidebar.code(f"Ключ: {api_key[:5]}...{api_key[-5:]}")
+        
+        # Проверим, работает ли API
+        try:
+            with st.sidebar.status("Тестируем API..."):
+                resp = requests.post(
+                    SERPER_URL,
+                    headers={
+                        "X-API-KEY": api_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "q": "Вторая мировая война начало",
+                        "gl": "ru",
+                        "hl": "ru",
+                        "num": 1,
+                    },
+                    timeout=10,
+                )
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.sidebar.success(f"✅ API работает (статус: {resp.status_code})")
+                    
+                    # Покажем первый результат
+                    organic = data.get("organic", [])
+                    if organic:
+                        st.sidebar.write("Первый результат:")
+                        st.sidebar.info(f"**{organic[0].get('title', 'Нет заголовка')}**")
+                    else:
+                        st.sidebar.warning("Поиск не дал результатов")
+                else:
+                    st.sidebar.error(f"❌ API ошибка: статус {resp.status_code}")
+                    st.sidebar.code(resp.text[:200])
+                    
+        except requests.exceptions.Timeout:
+            st.sidebar.error("❌ Таймаут при запросе к API")
+        except requests.exceptions.ConnectionError:
+            st.sidebar.error("❌ Ошибка подключения к API")
+        except Exception as e:
+            st.sidebar.error(f"❌ Неизвестная ошибка: {str(e)}")
+    else:
+        st.sidebar.error("❌ SERPER_API_KEY не найден в окружении")
+        
+    # Проверим переменные окружения
+    st.sidebar.write("Все переменные окружения:", list(os.environ.keys()))
+
 # Сначала настройка страницы (ДО всего остального)
 st.set_page_config(
     page_title="LLM Hallucination Risk Checker",
@@ -467,3 +522,42 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# В main(), после получения fact_results:
+with st.expander("🔍 Подробная отладка фактчекера"):
+    st.write(f"**Всего предложений для проверки:** {len(result.sentence_scores)}")
+    st.write(f"**Кандидатов с риском ≥60%:** {len(fact_results)}")
+    
+    for i, fr in enumerate(fact_results):
+        st.markdown(f"### Предложение {i+1}")
+        st.write(f"**Текст:** {fr.sentence}")
+        st.write(f"**Статус:** {fr.status}")
+        st.write(f"**Схожесть:** {fr.similarity}")
+        st.write(f"**Источник:** {fr.source_title}")
+        st.write(f"**URL:** {fr.source_url}")
+        st.write(f"**Объяснение:** {fr.explanation}")
+        
+        # Покажем, что искали
+        query = fr.sentence[:50] + "..."
+        st.write(f"**Поисковый запрос:** {query}")
+        
+        # Проверим Wikipedia отдельно
+        st.write("**Результаты Wikipedia:**")
+        wiki_results = _wiki_candidates(fr.sentence, top_k=1)
+        if wiki_results:
+            for lang, title, snippet in wiki_results:
+                st.write(f"- {lang}.wikipedia: {title}")
+        else:
+            st.write("  - Ничего не найдено")
+        
+        # Проверим веб-поиск отдельно
+        st.write("**Результаты веб-поиска:**")
+        web_results = _web_candidates(fr.sentence, max_results=1)
+        if web_results:
+            for title, snippet, url in web_results:
+                st.write(f"- {title}")
+        else:
+            st.write("  - Ничего не найдено (возможно, нет API ключа)")
+        
+        st.divider()
+
