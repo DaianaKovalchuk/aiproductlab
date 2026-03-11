@@ -1,13 +1,13 @@
 import io
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 import os
+from dataclasses import dataclass  # ВАЖНО: добавлен этот импорт
 
 from fpdf import FPDF
 from semantic_analyzer import AnalysisResult, SentenceScore
 
-# Импортируем FactCheckResult из того же места, где он определен
-# В вашем случае он определен в app.py, но для pdf_report.py нужно переопределить
+# Определяем класс FactCheckResult прямо здесь, чтобы не зависеть от app.py
 @dataclass
 class FactCheckResult:
     sentence: str
@@ -255,10 +255,13 @@ def build_pdf_bytes(
     recommendations = []
     if result.overall_risk > 60:
         recommendations.append("• Высокий риск галлюцинаций - требуется тщательная проверка всех фактов")
-    if fact_results and contradicted > 0:
-        recommendations.append(f"• Найдено {contradicted} противоречий с источниками - проверьте эти утверждения")
-    if fact_results and no_source > 0:
-        recommendations.append(f"• Для {no_source} утверждений не найдено источников - требуется ручная проверка")
+    if fact_results:
+        contradicted = sum(1 for fr in fact_results if fr.status == "contradicted")
+        no_source = sum(1 for fr in fact_results if fr.status == "no_source")
+        if contradicted > 0:
+            recommendations.append(f"• Найдено {contradicted} противоречий с источниками - проверьте эти утверждения")
+        if no_source > 0:
+            recommendations.append(f"• Для {no_source} утверждений не найдено источников - требуется ручная проверка")
     if result.metadata['std_sentence_similarity'] > 0.2:
         recommendations.append("• Высокий разброс в схожести предложений - ответ стилистически неоднороден")
     
