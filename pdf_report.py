@@ -42,6 +42,7 @@ def build_pdf_bytes(question: str, answer: str, result: AnalysisResult, risk_thr
     pdf.set_font('DejaVu', 'B', 12)
     pdf.cell(0, 10, 'Вопрос:', 0, 1)
     pdf.set_font('DejaVu', '', 12)
+    # Важно: multi_cell для длинного текста
     pdf.multi_cell(0, 10, question)
     pdf.ln(5)
     
