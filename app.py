@@ -434,13 +434,12 @@ def main():
         st.markdown("---")
         st.subheader("Экспорт отчёта")
         try:
-            # ИСПРАВЛЕНО: добавляем fact_results в вызов
             pdf_bytes = build_pdf_bytes(
                 question, 
                 answer, 
                 result, 
                 fact_results,
-                risk_threshold  
+                risk_threshold
             )
             st.download_button(
                 label="📥 Скачать PDF-отчёт",
@@ -454,4 +453,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
