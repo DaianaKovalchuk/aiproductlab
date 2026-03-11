@@ -1,6 +1,7 @@
 import io
 from typing import List
 from datetime import datetime
+import os
 
 from fpdf import FPDF
 from semantic_analyzer import AnalysisResult, SentenceScore
@@ -8,12 +9,14 @@ from semantic_analyzer import AnalysisResult, SentenceScore
 class PDF(FPDF):
     def __init__(self):
         super().__init__()
+        # Получаем путь к папке со шрифтами
+        font_dir = os.path.dirname(os.path.abspath(__file__))
+        
         # Добавляем поддержку Unicode (кириллицы)
-        self.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
-        self.add_font('DejaVu', 'B', 'DejaVuSansCondensed-Bold.ttf', uni=True)
+        self.add_font('DejaVu', '', os.path.join(font_dir, 'DejaVuSansCondensed.ttf'), uni=True)
+        self.add_font('DejaVu', 'B', os.path.join(font_dir, 'DejaVuSansCondensed-Bold.ttf'), uni=True)
         
     def header(self):
-        # Заголовок с поддержкой Unicode
         self.set_font('DejaVu', 'B', 16)
         self.cell(0, 10, 'Отчет о проверке галлюцинаций LLM', 0, 1, 'C')
         self.ln(10)
@@ -42,7 +45,6 @@ def build_pdf_bytes(question: str, answer: str, result: AnalysisResult, risk_thr
     pdf.set_font('DejaVu', 'B', 12)
     pdf.cell(0, 10, 'Вопрос:', 0, 1)
     pdf.set_font('DejaVu', '', 12)
-    # Важно: multi_cell для длинного текста
     pdf.multi_cell(0, 10, question)
     pdf.ln(5)
     
