@@ -5,7 +5,21 @@ import os
 
 from fpdf import FPDF
 from semantic_analyzer import AnalysisResult, SentenceScore
-from fact_checker import FactCheckResult
+
+# Импортируем FactCheckResult из того же места, где он определен
+# В вашем случае он определен в app.py, но для pdf_report.py нужно переопределить
+@dataclass
+class FactCheckResult:
+    sentence: str
+    status: str
+    similarity: Optional[float]
+    source_title: Optional[str]
+    source_snippet: Optional[str]
+    source_url: Optional[str]
+    sentence_numbers: List[str]
+    source_numbers: List[str]
+    numbers_status: str
+    explanation: str
 
 class PDF(FPDF):
     def __init__(self):
@@ -53,7 +67,7 @@ def build_pdf_bytes(
     question: str, 
     answer: str, 
     result: AnalysisResult, 
-    fact_results: List[FactCheckResult],  # Добавляем факт-результаты
+    fact_results: List[FactCheckResult],
     risk_threshold: float = 60.0
 ) -> bytes:
     """
@@ -241,9 +255,9 @@ def build_pdf_bytes(
     recommendations = []
     if result.overall_risk > 60:
         recommendations.append("• Высокий риск галлюцинаций - требуется тщательная проверка всех фактов")
-    if contradicted > 0:
+    if fact_results and contradicted > 0:
         recommendations.append(f"• Найдено {contradicted} противоречий с источниками - проверьте эти утверждения")
-    if no_source > 0:
+    if fact_results and no_source > 0:
         recommendations.append(f"• Для {no_source} утверждений не найдено источников - требуется ручная проверка")
     if result.metadata['std_sentence_similarity'] > 0.2:
         recommendations.append("• Высокий разброс в схожести предложений - ответ стилистически неоднороден")
