@@ -1,6 +1,8 @@
 import io
 from typing import List, Optional
 from datetime import datetime
+import os
+import re
 from dataclasses import dataclass
 
 from fpdf import FPDF
@@ -19,6 +21,40 @@ class FactCheckResult:
     numbers_status: str
     explanation: str
 
+class PDF(FPDF):
+    def __init__(self):
+        super().__init__()
+        self.unicode_fonts_loaded = False
+        self.load_unicode_fonts()
+    
+    def load_unicode_fonts(self):
+        """Загружает Unicode-шрифты DejaVu из папки проекта"""
+        font_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Пути к файлам шрифтов
+        regular_path = os.path.join(font_dir, 'DejaVuSansCondensed.ttf')
+        bold_path = os.path.join(font_dir, 'DejaVuSansCondensed-Bold.ttf')
+        italic_path = os.path.join(font_dir, 'DejaVuSansCondensed-Oblique.ttf')
+        
+        # Проверяем наличие файлов
+        if os.path.exists(regular_path):
+            self.add_font('DejaVu', '', regular_path, uni=True)
+            if os.path.exists(bold_path):
+                self.add_font('DejaVu', 'B', bold_path, uni=True)
+            if os.path.exists(italic_path):
+                self.add_font('DejaVu', 'I', italic_path, uni=True)
+            self.unicode_fonts_loaded = True
+            print("✅ Unicode fonts loaded successfully")
+        else:
+            print("⚠️ Unicode fonts not found, using Helvetica")
+    
+    def select_font(self, text: str = "", style: str = '', size: int = 10):
+        """Выбирает шрифт в зависимости от текста"""
+        if self.unicode_fonts_loaded:
+            self.set_font('DejaVu', style, size)
+        else:
+            self.set_font('helvetica', style, size)
+
 def build_pdf_bytes(
     question: str, 
     answer: str, 
@@ -27,69 +63,52 @@ def build_pdf_bytes(
     risk_threshold: float = 60.0
 ) -> bytes:
     """
-    PDF-отчет с поддержкой кириллицы через встроенный Unicode-шрифт.
+    PDF-отчет с поддержкой кириллицы через DejaVu шрифты.
     """
-    pdf = FPDF()
+    pdf = PDF()
     pdf.add_page()
     
-    # В fpdf2 есть встроенная поддержка Unicode через дефолтный шрифт
-    # Но для надежности используем helvetica и конвертируем текст
+    # Проверяем, загрузились ли шрифты
+    if not pdf.unicode_fonts_loaded:
+        print("⚠️ Using Helvetica - Cyrillic text may not display correctly")
     
     # ===== ЗАГОЛОВОК =====
-    pdf.set_font('helvetica', 'B', 20)
+    pdf.select_font(style='B', size=20)
     pdf.cell(0, 15, 'Анализ галлюцинаций LLM', 0, 1, 'C')
-    pdf.set_font('helvetica', '', 10)
+    pdf.select_font(size=10)
     pdf.cell(0, 8, f'Сгенерировано: {datetime.now().strftime("%d.%m.%Y %H:%M")}', 0, 1, 'C')
     pdf.ln(10)
     
     # ===== ВОПРОС =====
-    pdf.set_font('helvetica', 'B', 12)
+    pdf.select_font(style='B', size=12)
     pdf.cell(0, 8, 'Вопрос:', 0, 1)
-    pdf.set_font('helvetica', '', 12)
-    
-    # Разбиваем вопрос на строки по 80 символов
-    q_lines = [question[i:i+80] for i in range(0, len(question), 80)]
-    for line in q_lines:
-        # Конвертируем каждый символ в latin-1, заменяя неподдерживаемые на '?'
-        try:
-            pdf.cell(0, 8, line.encode('latin-1').decode('latin-1'), 0, 1)
-        except:
-            # Если ошибка - заменяем проблемные символы
-            safe_line = ''.join(c if ord(c) < 256 else '?' for c in line)
-            pdf.cell(0, 8, safe_line, 0, 1)
+    pdf.select_font(size=12)
+    pdf.multi_cell(0, 8, question)
     pdf.ln(5)
     
     # ===== ОТВЕТ =====
-    pdf.set_font('helvetica', 'B', 12)
+    pdf.select_font(style='B', size=12)
     pdf.cell(0, 8, 'Ответ:', 0, 1)
-    pdf.set_font('helvetica', '', 12)
-    
-    # Разбиваем ответ на строки по 80 символов
-    a_lines = [answer[i:i+80] for i in range(0, len(answer), 80)]
-    for line in a_lines:
-        try:
-            pdf.cell(0, 8, line.encode('latin-1').decode('latin-1'), 0, 1)
-        except:
-            safe_line = ''.join(c if ord(c) < 256 else '?' for c in line)
-            pdf.cell(0, 8, safe_line, 0, 1)
+    pdf.select_font(size=12)
+    pdf.multi_cell(0, 8, answer)
     pdf.ln(5)
     
     # ===== РИСК =====
-    pdf.set_font('helvetica', 'B', 14)
+    pdf.select_font(style='B', size=14)
     pdf.cell(0, 10, f'Общий риск: {result.overall_risk:.1f}%', 0, 1)
     pdf.ln(5)
     
     # ===== СТАТИСТИКА =====
-    pdf.set_font('helvetica', 'B', 12)
+    pdf.select_font(style='B', size=12)
     pdf.cell(0, 8, 'Статистика:', 0, 1)
-    pdf.set_font('helvetica', '', 12)
+    pdf.select_font(size=12)
     pdf.cell(0, 7, f'Предложений: {result.metadata["num_sentences"]}', 0, 1)
     pdf.cell(0, 7, f'Средняя схожесть: {result.metadata["mean_sentence_similarity"]:.2f}', 0, 1)
     pdf.ln(5)
     
     # ===== ФАКТОЛОГИЧЕСКАЯ ПРОВЕРКА =====
     if fact_results:
-        pdf.set_font('helvetica', 'B', 12)
+        pdf.select_font(style='B', size=12)
         pdf.cell(0, 8, 'Результаты проверки:', 0, 1)
         pdf.ln(2)
         
@@ -99,7 +118,7 @@ def build_pdf_bytes(
         no_source = sum(1 for fr in fact_results if fr.status == "no_source")
         total = len(fact_results)
         
-        pdf.set_font('helvetica', '', 11)
+        pdf.select_font(size=11)
         pdf.cell(0, 7, f'Всего проверено: {total}', 0, 1)
         pdf.cell(0, 7, f'✅ Подтверждено: {confirmed}', 0, 1)
         pdf.cell(0, 7, f'🟡 Частично: {partial}', 0, 1)
@@ -108,12 +127,12 @@ def build_pdf_bytes(
         pdf.ln(5)
         
         # Детальный разбор
-        pdf.set_font('helvetica', 'B', 12)
+        pdf.select_font(style='B', size=12)
         pdf.cell(0, 8, 'Детальный разбор:', 0, 1)
         pdf.ln(2)
         
         for i, fr in enumerate(fact_results, 1):
-            # Статус
+            # Статус с эмодзи
             status_symbol = {
                 "confirmed": "✅",
                 "partial": "🟡",
@@ -121,20 +140,14 @@ def build_pdf_bytes(
                 "no_source": "❓"
             }.get(fr.status, "•")
             
-            pdf.set_font('helvetica', 'B', 11)
+            pdf.select_font(style='B', size=11)
             pdf.cell(0, 7, f'{status_symbol} Предложение {i}:', 0, 1)
-            pdf.set_font('helvetica', '', 10)
+            pdf.select_font(size=10)
             
-            # Разбиваем текст предложения
-            sent_lines = [fr.sentence[j:j+70] for j in range(0, len(fr.sentence), 70)]
-            for line in sent_lines:
-                try:
-                    pdf.cell(0, 6, line.encode('latin-1').decode('latin-1'), 0, 1)
-                except:
-                    safe_line = ''.join(c if ord(c) < 256 else '?' for c in line)
-                    pdf.cell(0, 6, safe_line, 0, 1)
+            # Текст предложения с переносом строк
+            pdf.multi_cell(0, 6, fr.sentence)
             
-            pdf.set_font('helvetica', '', 10)
+            pdf.select_font(size=10)
             pdf.cell(0, 6, f'Статус: {fr.status}', 0, 1)
             
             if fr.similarity:
@@ -142,45 +155,51 @@ def build_pdf_bytes(
             
             if fr.source_title:
                 pdf.set_text_color(0, 0, 255)
-                try:
-                    pdf.cell(0, 6, f'Источник: {fr.source_title}', 0, 1)
-                except:
-                    safe_source = ''.join(c if ord(c) < 256 else '?' for c in fr.source_title)
-                    pdf.cell(0, 6, f'Source: {safe_source}', 0, 1)
+                pdf.cell(0, 6, f'Источник: {fr.source_title}', 0, 1)
                 pdf.set_text_color(0, 0, 0)
             
+            if fr.source_url:
+                pdf.set_font('helvetica' if not pdf.unicode_fonts_loaded else 'DejaVu', 'U', 8)
+                # Разбиваем длинный URL
+                url = fr.source_url
+                if len(url) > 70:
+                    parts = [url[i:i+70] for i in range(0, len(url), 70)]
+                    for part in parts:
+                        pdf.cell(0, 5, part, 0, 1)
+                else:
+                    pdf.cell(0, 5, url, 0, 1)
+                pdf.select_font(size=10)
+            
             if fr.explanation:
-                pdf.set_font('helvetica', '', 9)
-                try:
-                    pdf.multi_cell(0, 5, f'Пояснение: {fr.explanation}')
-                except:
-                    safe_expl = ''.join(c if ord(c) < 256 else '?' for c in fr.explanation)
-                    pdf.multi_cell(0, 5, f'Note: {safe_expl}')
-                pdf.set_font('helvetica', '', 10)
+                pdf.select_font(style='I', size=9)
+                pdf.multi_cell(0, 5, f'Пояснение: {fr.explanation}')
+                pdf.select_font(size=10)
             
             pdf.ln(3)
+            
+            # Разделитель
             pdf.set_draw_color(200, 200, 200)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(2)
     
     # ===== ИТОГОВЫЕ ВЫВОДЫ =====
-    pdf.set_font('helvetica', 'B', 12)
+    pdf.select_font(style='B', size=12)
     pdf.cell(0, 8, 'Рекомендации:', 0, 1)
-    pdf.set_font('helvetica', '', 11)
+    pdf.select_font(size=11)
     
     recommendations = []
     if result.overall_risk > 60:
-        recommendations.append("• Высокий риск - требуется проверка фактов")
+        recommendations.append("• Высокий риск галлюцинаций - требуется тщательная проверка")
     if fact_results:
         contradicted = sum(1 for fr in fact_results if fr.status == "contradicted")
         no_source = sum(1 for fr in fact_results if fr.status == "no_source")
         if contradicted > 0:
-            recommendations.append(f"• Найдено {contradicted} противоречий")
+            recommendations.append(f"• Найдено {contradicted} противоречий с источниками")
         if no_source > 0:
-            recommendations.append(f"• {no_source} утверждений без источников")
+            recommendations.append(f"• Для {no_source} утверждений не найдено источников")
     
     if not recommendations:
-        recommendations.append("• Ответ выглядит согласованным")
+        recommendations.append("• Ответ выглядит согласованным, рекомендуем выборочно проверить ключевые факты")
     
     for rec in recommendations:
         pdf.multi_cell(0, 7, rec)
