@@ -15,7 +15,7 @@ from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore, get_model
 import inspect
 
-# Добавьте после импортов, перед main()
+# ========== ДИАГНОСТИКА API ==========
 def debug_api_key():
     """Проверка наличия и работы API ключа"""
     st.sidebar.subheader("🔑 Диагностика API")
@@ -29,7 +29,7 @@ def debug_api_key():
         try:
             with st.sidebar.status("Тестируем API..."):
                 resp = requests.post(
-                    SERPER_URL,
+                    "https://google.serper.dev/search",
                     headers={
                         "X-API-KEY": api_key,
                         "Content-Type": "application/json",
@@ -47,7 +47,6 @@ def debug_api_key():
                     data = resp.json()
                     st.sidebar.success(f"✅ API работает (статус: {resp.status_code})")
                     
-                    # Покажем первый результат
                     organic = data.get("organic", [])
                     if organic:
                         st.sidebar.write("Первый результат:")
@@ -66,35 +65,26 @@ def debug_api_key():
             st.sidebar.error(f"❌ Неизвестная ошибка: {str(e)}")
     else:
         st.sidebar.error("❌ SERPER_API_KEY не найден в окружении")
-        
-    # Проверим переменные окружения
-    st.sidebar.write("Все переменные окружения:", list(os.environ.keys()))
 
-# Сначала настройка страницы (ДО всего остального)
+# ========== НАСТРОЙКА СТРАНИЦЫ ==========
 st.set_page_config(
     page_title="LLM Hallucination Risk Checker",
     page_icon="🧠",
     layout="centered",
 )
 
-# Локально читаем .env, на Streamlit Cloud значения приходят из secrets.
+# ========== ЗАГРУЗКА ПЕРЕМЕННЫХ ==========
 load_dotenv()
 
-# Если на Streamlit Cloud задан SERPER_API_KEY в st.secrets,
-# пробрасываем его в переменные окружения.
+# Если на Streamlit Cloud задан SERPER_API_KEY в st.secrets
 if "SERPER_API_KEY" in getattr(st, "secrets", {}):
     os.environ.setdefault("SERPER_API_KEY", st.secrets["SERPER_API_KEY"])
 
-# ========== ФАКТЧЕКЕР (ВСТРОЕННЫЙ) ==========
-
+# ========== КОНСТАНТЫ ==========
 WIKIPEDIA_API_URL_TEMPLATE = "https://{lang}.wikipedia.org/w/api.php"
 SERPER_URL = "https://google.serper.dev/search"
 
-@st.cache_resource
-def load_semantic_model():
-    """Кэшируем модель для экономии памяти"""
-    return get_model()
-
+# ========== КЛАССЫ ==========
 @dataclass
 class FactCheckResult:
     sentence: str
@@ -107,6 +97,12 @@ class FactCheckResult:
     source_numbers: List[str]
     numbers_status: str
     explanation: str
+
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+@st.cache_resource
+def load_semantic_model():
+    """Кэшируем модель для экономии памяти"""
+    return get_model()
 
 def _looks_fact_dense(sentence: str) -> bool:
     if re.search(r"\d", sentence):
@@ -332,9 +328,8 @@ def fact_check_sentences(
         )
 
     return results
-# ========== КОНЕЦ ФАКТЧЕКЕРА ==========
 
-# ДИАГНОСТИКА
+# ========== ДИАГНОСТИКА ==========
 st.sidebar.header("🔧 Диагностика")
 
 # Проверка сигнатуры FactCheckResult
@@ -352,11 +347,15 @@ try:
 except Exception as e:
     st.sidebar.error(f"Ошибка проверки: {e}")
 
+# Вызов диагностики API
+debug_api_key()
+
 def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     sims = np.array([s.similarity for s in sentence_scores], dtype=float)
     sims_pct = sims * 100.0
     return sims_pct
 
+# ========== ОСНОВНОЕ ПРИЛОЖЕНИЕ ==========
 def main():
     st.title("Проверка галлюцинаций LLM")
     st.caption(
@@ -401,16 +400,51 @@ def main():
                 fact_results: List[FactCheckResult] = fact_check_sentences(result.sentence_scores)
             fact_check_available = True
             
-            # ОТЛАДКА - теперь здесь, после получения результатов
-            with st.expander("🔍 Отладка фактчекера"):
-                st.write("Количество кандидатов:", len(fact_results))
+            # ===== ПОДРОБНАЯ ОТЛАДКА =====
+            with st.expander("🔍 Подробная отладка фактчекера"):
+                st.write(f"**Всего предложений для проверки:** {len(result.sentence_scores)}")
+                st.write(f"**Кандидатов с риском ≥60%:** {len(fact_results)}")
+                
                 for i, fr in enumerate(fact_results):
-                    st.write(f"**Предложение {i+1}:** {fr.sentence}")
-                    st.write(f"Статус: {fr.status}")
-                    st.write(f"Источник: {fr.source_title}")
-                    st.write(f"URL: {fr.source_url}")
-                    st.write(f"Объяснение: {fr.explanation}")
-                    st.write("---")
+                    st.markdown(f"### Предложение {i+1}")
+                    st.write(f"**Текст:** {fr.sentence}")
+                    st.write(f"**Статус:** {fr.status}")
+                    st.write(f"**Схожесть:** {fr.similarity}")
+                    st.write(f"**Источник:** {fr.source_title}")
+                    st.write(f"**URL:** {fr.source_url}")
+                    st.write(f"**Объяснение:** {fr.explanation}")
+                    
+                    # Покажем, что искали
+                    query = _shorten_for_query(fr.sentence)
+                    st.write(f"**Поисковый запрос:** {query}")
+                    
+                    # Проверим Wikipedia отдельно
+                    st.write("**Результаты Wikipedia:**")
+                    wiki_results = _wiki_candidates(query, top_k=1)
+                    if wiki_results:
+                        for lang, title, snippet in wiki_results:
+                            st.write(f"- {lang}.wikipedia: {title}")
+                            with st.expander("Показать текст"):
+                                st.write(snippet[:300] + "...")
+                    else:
+                        st.write("  - Ничего не найдено")
+                    
+                    # Проверим веб-поиск отдельно
+                    st.write("**Результаты веб-поиска:**")
+                    web_results = _web_candidates(query, max_results=1)
+                    if web_results:
+                        for title, snippet, url in web_results:
+                            st.write(f"- **{title}**")
+                            st.write(f"  URL: {url}")
+                            with st.expander("Показать текст"):
+                                st.write(snippet[:300] + "...")
+                    else:
+                        if os.environ.get("SERPER_API_KEY"):
+                            st.write("  - Ничего не найдено (поиск не дал результатов)")
+                        else:
+                            st.write("  - ❌ Веб-поиск отключён: нет SERPER_API_KEY")
+                    
+                    st.divider()
                     
         except Exception as e:
             fact_results = []
@@ -522,42 +556,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# В main(), после получения fact_results:
-with st.expander("🔍 Подробная отладка фактчекера"):
-    st.write(f"**Всего предложений для проверки:** {len(result.sentence_scores)}")
-    st.write(f"**Кандидатов с риском ≥60%:** {len(fact_results)}")
-    
-    for i, fr in enumerate(fact_results):
-        st.markdown(f"### Предложение {i+1}")
-        st.write(f"**Текст:** {fr.sentence}")
-        st.write(f"**Статус:** {fr.status}")
-        st.write(f"**Схожесть:** {fr.similarity}")
-        st.write(f"**Источник:** {fr.source_title}")
-        st.write(f"**URL:** {fr.source_url}")
-        st.write(f"**Объяснение:** {fr.explanation}")
-        
-        # Покажем, что искали
-        query = fr.sentence[:50] + "..."
-        st.write(f"**Поисковый запрос:** {query}")
-        
-        # Проверим Wikipedia отдельно
-        st.write("**Результаты Wikipedia:**")
-        wiki_results = _wiki_candidates(fr.sentence, top_k=1)
-        if wiki_results:
-            for lang, title, snippet in wiki_results:
-                st.write(f"- {lang}.wikipedia: {title}")
-        else:
-            st.write("  - Ничего не найдено")
-        
-        # Проверим веб-поиск отдельно
-        st.write("**Результаты веб-поиска:**")
-        web_results = _web_candidates(fr.sentence, max_results=1)
-        if web_results:
-            for title, snippet, url in web_results:
-                st.write(f"- {title}")
-        else:
-            st.write("  - Ничего не найдено (возможно, нет API ключа)")
-        
-        st.divider()
-
