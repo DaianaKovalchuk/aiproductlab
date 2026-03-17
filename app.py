@@ -13,25 +13,25 @@ from sentence_transformers import SentenceTransformer
 
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore, get_model
 
-# ========== НАСТРОЙКА СТРАНИЦЫ ==========
+# ========== PAGE CONFIGURATION ==========
 st.set_page_config(
     page_title="LLM Hallucination Risk Checker",
     page_icon="🧠",
     layout="centered",
 )
 
-# ========== ЗАГРУЗКА ПЕРЕМЕННЫХ ==========
+# ========== ENVIRONMENT VARIABLES ==========
 load_dotenv()
 
-# Если на Streamlit Cloud задан SERPER_API_KEY в st.secrets
+# If SERPER_API_KEY is set in Streamlit Cloud secrets
 if "SERPER_API_KEY" in getattr(st, "secrets", {}):
     os.environ.setdefault("SERPER_API_KEY", st.secrets["SERPER_API_KEY"])
 
-# ========== КОНСТАНТЫ ==========
+# ========== CONSTANTS ==========
 WIKIPEDIA_API_URL_TEMPLATE = "https://{lang}.wikipedia.org/w/api.php"
 SERPER_URL = "https://google.serper.dev/search"
 
-# ========== КЛАССЫ ==========
+# ========== CLASSES ==========
 @dataclass
 class FactCheckResult:
     sentence: str
@@ -45,10 +45,10 @@ class FactCheckResult:
     numbers_status: str
     explanation: str
 
-# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+# ========== HELPER FUNCTIONS ==========
 @st.cache_resource
 def load_semantic_model():
-    """Кэшируем модель для экономии памяти"""
+    """Cache the model to save memory"""
     return get_model()
 
 def _looks_fact_dense(sentence: str) -> bool:
@@ -200,7 +200,7 @@ def fact_check_sentences(
                     sentence_numbers=[],
                     source_numbers=[],
                     numbers_status="no_numbers",
-                    explanation="Подходящие статьи в открытых источниках не найдены. Нужна ручная проверка.",
+                    explanation="No relevant sources found. Manual verification needed.",
                 )
             )
             continue
@@ -245,19 +245,19 @@ def fact_check_sentences(
 
         if best_sim >= 0.7 and not numbers_conflict:
             status = "confirmed"
-            explanation = "Смысл предложения хорошо совпадает с описанием в Википедии, явных конфликтов по числам нет."
+            explanation = "The statement closely matches Wikipedia sources with no numerical conflicts."
         elif best_sim >= 0.55 and not numbers_conflict:
             status = "partial"
-            explanation = "Источники описывают похожий факт, но формулировки отличаются. Интерпретируйте с осторожностью."
+            explanation = "Sources describe similar facts but wording differs. Interpret with caution."
         elif best_sim <= 0.35 or numbers_conflict:
             status = "contradicted"
             if numbers_conflict:
-                explanation = "Цифры/годы в предложении отличаются от тех, что указаны в Википедии. Вероятна ошибка."
+                explanation = "Numbers/dates in the statement differ from those in Wikipedia sources."
             else:
-                explanation = "Описание в Википедии заметно отличается по смыслу. Проверьте факт."
+                explanation = "The description in Wikipedia significantly differs in meaning. Verify this fact."
         else:
             status = "no_source"
-            explanation = "Источники дают неоднозначное соответствие. Рекомендуется ручная проверка."
+            explanation = "Sources provide ambiguous matches. Manual verification recommended."
 
         results.append(
             FactCheckResult(
@@ -276,93 +276,91 @@ def fact_check_sentences(
 
     return results
 
-
-
 def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     sims = np.array([s.similarity for s in sentence_scores], dtype=float)
     sims_pct = sims * 100.0
     return sims_pct
 
-# ========== ОСНОВНОЕ ПРИЛОЖЕНИЕ ==========
+# ========== MAIN APPLICATION ==========
 def main():
-    st.title("Проверка галлюцинаций LLM")
+    st.title("LLM Hallucination Checker")
     st.caption(
-        "Быстрая оценка риска галлюцинаций в ответах ChatGPT, Grok и других моделей. "
-        "Инструмент для студентов, журналистов и маркетологов."
+        "Quick hallucination risk assessment for ChatGPT, Grok, and other LLM responses. "
+        "A tool for students, journalists, and marketers."
     )
 
     with st.form(key="qa_form"):
         question = st.text_area(
-            "Вопрос, который вы задали LLM",
+            "Question you asked the LLM",
             height=120,
-            placeholder="Например: Объясни причины кризиса 2008 года простым языком...",
+            placeholder="e.g., Explain the causes of the 2008 financial crisis in simple terms...",
         )
         answer = st.text_area(
-            "Ответ LLM (ChatGPT, Grok и т.д.)",
+            "LLM Response (ChatGPT, Grok, etc.)",
             height=220,
-            placeholder="Вставьте сюда полный ответ модели...",
+            placeholder="Paste the complete model response here...",
         )
 
-        submitted = st.form_submit_button("Проверить", use_container_width=True)
+        submitted = st.form_submit_button("Check", use_container_width=True)
 
     if submitted:
         if not question.strip() and not answer.strip():
-            st.warning("Введите вопрос и ответ, чтобы запустить проверку.")
+            st.warning("Please enter both question and answer to start the check.")
             return
         if not question.strip():
-            st.warning("Вы забыли ввести вопрос. Пожалуйста, добавьте формулировку запроса к LLM.")
+            st.warning("You forgot to enter the question. Please provide your query to the LLM.")
             return
         if not answer.strip():
-            st.warning("Вы забыли вставить ответ LLM. Скопируйте полный текст ответа и попробуйте снова.")
+            st.warning("You forgot to paste the LLM response. Copy the complete answer and try again.")
             return
 
-        with st.spinner("Выполняется семантический анализ..."):
+        with st.spinner("Performing semantic analysis..."):
             try:
                 result = analyze_semantic_consistency(question, answer)
             except Exception as e:
-                st.error(f"Что-то пошло не так при семантическом анализе: {str(e)}")
+                st.error(f"Something went wrong during semantic analysis: {str(e)}")
                 return
 
         try:
-            with st.spinner("Проверяем факты по открытым источникам..."):
+            with st.spinner("Checking facts against open sources..."):
                 fact_results: List[FactCheckResult] = fact_check_sentences(result.sentence_scores)
             fact_check_available = True
             
         except Exception as e:
             fact_results = []
             fact_check_available = False
-            st.warning(f"Фактологическая проверка временно недоступна: {str(e)}")
+            st.warning(f"Fact check temporarily unavailable: {str(e)}")
 
         col_score, col_meta = st.columns([1, 1.2])
         with col_score:
-            st.subheader("Итоговый риск галлюцинаций")
-            st.metric(label="Риск (0–100%)", value=f"{result.overall_risk:.1f}%")
+            st.subheader("Overall Hallucination Risk")
+            st.metric(label="Risk (0–100%)", value=f"{result.overall_risk:.1f}%")
 
             risk = result.overall_risk
             if risk < 20:
-                text = "Низкий риск. Ответ в целом согласован с вопросом."
+                text = "Low risk. Response is generally consistent with the question."
             elif risk < 50:
-                text = "Умеренный риск. Рекомендуется выборочная проверка ключевых фактов."
+                text = "Moderate risk. Selective verification of key facts recommended."
             elif risk < 80:
-                text = "Повышенный риск. Проверьте основные утверждения и цифры."
+                text = "Elevated risk. Verify main claims and numbers."
             else:
-                text = "Очень высокий риск. Ответ может содержать существенные неточности или уход от вопроса."
+                text = "Very high risk. Response may contain significant inaccuracies or be off-topic."
             st.write(text)
 
         with col_meta:
-            st.subheader("Семантическая согласованность")
+            st.subheader("Semantic Coherence")
             st.write(
-                f"Схожесть вопрос–ответ (cosine): **{result.metadata['qa_similarity']:.2f}**  "
-                f"(0 = нет сходства, 1 = полное совпадение)"
+                f"Question–answer similarity (cosine): **{result.metadata['qa_similarity']:.2f}**  "
+                f"(0 = no similarity, 1 = perfect match)"
             )
             st.write(
-                f"Средняя схожесть по предложениям: **{result.metadata['mean_sentence_similarity']:.2f}**  "
+                f"Average sentence similarity: **{result.metadata['mean_sentence_similarity']:.2f}**  "
                 f"(σ = {result.metadata['std_sentence_similarity']:.2f})"
             )
-            st.write(f"Число предложений в ответе: **{result.metadata['num_sentences']}**")
+            st.write(f"Number of sentences: **{result.metadata['num_sentences']}**")
 
             if not fact_check_available:
-                st.markdown("**Фактологическая проверка:** временно недоступна.")
+                st.markdown("**Fact check:** temporarily unavailable.")
             elif fact_results:
                 confirmed = sum(1 for fr in fact_results if fr.status == "confirmed")
                 partial = sum(1 for fr in fact_results if fr.status == "partial")
@@ -370,16 +368,97 @@ def main():
                 no_source = sum(1 for fr in fact_results if fr.status == "no_source")
                 total_fc = len(fact_results)
 
-                st.markdown("**Фактологическая проверка:**")
+                st.markdown("**Fact check results:**")
                 st.write(
-                    f"- ✅ полностью подтверждены: **{confirmed}** из {total_fc}\n"
-                    f"- 🟡 частично подтверждены: **{partial}**\n"
-                    f"- ❌ противоречат источникам: **{contradicted}**\n"
-                    f"- ❓ источников не найдено: **{no_source}**"
+                    f"- ✅ fully confirmed: **{confirmed}** out of {total_fc}\n"
+                    f"- 🟡 partially confirmed: **{partial}**\n"
+                    f"- ❌ contradicts sources: **{contradicted}**\n"
+                    f"- ❓ no sources found: **{no_source}**"
                 )
             else:
-                st.markdown("**Фактологическая проверка:** подходящих предложений не найдено.")
+                st.markdown("**Fact check:** no suitable sentences found for verification.")
+
+        st.markdown("---")
+        st.subheader("Sentence Coherence Histogram")
+        st.caption(
+            "Each bar shows how many sentences have similarity to the question in a given range. "
+            "The further right and higher the bars, the more phrases are semantically close to the question."
+        )
+
+        sims_pct = _compute_histogram_data(result.sentence_scores)
+
+        fig, ax = plt.subplots(figsize=(6, 3))
+        ax.hist(sims_pct, bins=8, color="#4C78A8", edgecolor="white")
+        ax.set_xlabel("Semantic similarity with question, %")
+        ax.set_ylabel("Number of sentences")
+        ax.set_xlim(0, 100)
+        ax.grid(axis="y", alpha=0.2)
+
+        st.pyplot(fig, use_container_width=True)
+
+        # Simple analytics by similarity zones
+        low = np.mean(sims_pct < 40) * 100.0
+        mid = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100.0
+        high = np.mean(sims_pct >= 70) * 100.0
+
+        st.markdown(
+            f"- **Low similarity (< 40%)**: approximately {low:.1f}% of sentences — potentially risky areas.\n"
+            f"- **Medium similarity (40–70%)**: approximately {mid:.1f}% of sentences — selective verification recommended.\n"
+            f"- **High similarity (> 70%)**: approximately {high:.1f}% of sentences — generally safe phrases."
+        )
+
+        st.markdown("### High-Risk Sentences (Semantic + Factual)")
+        st.caption(
+            "Semantic risk shows how much a phrase deviates from the question. "
+            "Factual status is based on comparison with Wikipedia sources."
+        )
+
+        risk_threshold = 60.0
+        risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
+
+        # Index fact checks by sentence text for quick access
+        fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
+
+        if not risky_sentences:
+            st.success("No sentences with high semantic risk detected.")
+        else:
+            for s in risky_sentences:
+                fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
+                st.markdown(
+                    f"- **Semantic risk {s.risk:.1f}% (sim {s.similarity:.2f})** — {s.sentence}"
+                )
+                if fr:
+                    if fr.status == "confirmed":
+                        status_text = "Fact check: sources generally confirm the statement."
+                    elif fr.status == "partial":
+                        status_text = "Fact check: sources describe similar facts but not verbatim — interpret with caution."
+                    elif fr.status == "contradicted":
+                        status_text = "Fact check: sources contradict this — verify carefully."
+                    else:
+                        status_text = "Fact check: no suitable sources found, manual verification needed."
+
+                    st.markdown(f"  ↳ *{status_text}*")
+                    # Numbers/dates breakdown
+                    if fr.numbers_status != "no_numbers":
+                        if fr.numbers_status == "match":
+                            num_text = "Numbers/dates match the source."
+                        elif fr.numbers_status == "partial":
+                            num_text = (
+                                "Some numbers/dates match the source, but there are discrepancies — check carefully."
+                            )
+                        else:
+                            num_text = "Numbers/dates don't match the source — high probability of error."
+
+                        st.markdown(f"  ↳ {num_text}")
+                        st.markdown(
+                            f"    · In response: `{', '.join(fr.sentence_numbers)}`  · In source: `{', '.join(fr.source_numbers)}`"
+                        )
+
+                    if fr.source_title:
+                        if fr.source_url:
+                            st.markdown(f"  ↳ Source: **[{fr.source_title}]({fr.source_url})**")
+                        else:
+                            st.markdown(f"  ↳ Source: **{fr.source_title}**")
 
 if __name__ == "__main__":
     main()
-
