@@ -11,7 +11,6 @@ import streamlit as st
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
-from pdf_report import build_pdf_bytes
 from semantic_analyzer import analyze_semantic_consistency, SentenceScore, get_model
 
 # ========== НАСТРОЙКА СТРАНИЦЫ ==========
@@ -277,15 +276,7 @@ def fact_check_sentences(
 
     return results
 
-# ========== МИНИМАЛЬНАЯ ДИАГНОСТИКА ==========
-st.sidebar.header("🔧 Диагностика")
 
-# Проверка API ключа (только наличие)
-api_key = os.environ.get("SERPER_API_KEY")
-if api_key:
-    st.sidebar.success("✅ API ключ настроен")
-else:
-    st.sidebar.warning("⚠️ API ключ не найден. Веб-поиск отключён.")
 
 def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     sims = np.array([s.similarity for s in sentence_scores], dtype=float)
@@ -389,67 +380,6 @@ def main():
             else:
                 st.markdown("**Фактологическая проверка:** подходящих предложений не найдено.")
 
-        st.markdown("---")
-        st.subheader("Гистограмма согласованности по предложениям")
-        sims_pct = _compute_histogram_data(result.sentence_scores)
-
-        fig, ax = plt.subplots(figsize=(6, 3))
-        ax.hist(sims_pct, bins=8, color="#4C78A8", edgecolor="white")
-        ax.set_xlabel("Семантическая схожесть с вопросом, %")
-        ax.set_ylabel("Количество предложений")
-        ax.set_xlim(0, 100)
-        ax.grid(axis="y", alpha=0.2)
-        st.pyplot(fig, use_container_width=True)
-
-        low = np.mean(sims_pct < 40) * 100.0
-        mid = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100.0
-        high = np.mean(sims_pct >= 70) * 100.0
-
-        st.markdown(
-            f"- **Низкая схожесть (< 40%)**: примерно {low:.1f}% предложений\n"
-            f"- **Средняя схожесть (40–70%)**: примерно {mid:.1f}% предложений\n"
-            f"- **Высокая схожесть (> 70%)**: примерно {high:.1f}% предложений"
-        )
-
-        st.markdown("### Предложения с повышенным риском")
-        risk_threshold = 60.0
-        risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
-        fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
-
-        if not risky_sentences:
-            st.success("Явных предложений с высоким семантическим риском не обнаружено.")
-        else:
-            for s in risky_sentences:
-                fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
-                st.markdown(f"- **Риск {s.risk:.1f}%** — {s.sentence}")
-                if fr:
-                    status_text = {
-                        "confirmed": "✅ Подтверждено",
-                        "partial": "🟡 Частично подтверждено",
-                        "contradicted": "❌ Противоречит источникам",
-                        "no_source": "❓ Источники не найдены"
-                    }.get(fr.status, "")
-                    st.markdown(f"  ↳ *{status_text}*")
-
-        st.markdown("---")
-        st.subheader("Экспорт отчёта")
-        try:
-            pdf_bytes = build_pdf_bytes(
-                question, 
-                answer, 
-                result, 
-                fact_results,
-                risk_threshold
-            )
-            st.download_button(
-                label="📥 Скачать PDF-отчёт",
-                data=pdf_bytes,
-                file_name="llm_hallucination_report.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
-        except Exception as e:
-            st.error(f"Не удалось сформировать PDF: {str(e)}")
-
 if __name__ == "__main__":
     main()
+
