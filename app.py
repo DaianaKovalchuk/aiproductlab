@@ -662,43 +662,64 @@ else:
             st.markdown("---")
 
         # Simple similarity distribution
-        st.markdown("### 📊 Response Coherence Overview")
-        
-        sims_pct = _compute_histogram_data(result.sentence_scores)
-        
-        fig, ax = plt.subplots(figsize=(10, 3))
-        n, bins, patches = ax.hist(sims_pct, bins=8, edgecolor='white', alpha=0.7)
-        
-        # Color code the bars for better understanding
-        for i, patch in enumerate(patches):
-            if bins[i] < 40:
-                patch.set_facecolor('#dc3545')  # Red - low similarity
-            elif bins[i] < 70:
-                patch.set_facecolor('#ffc107')  # Yellow - medium similarity
-            else:
-                patch.set_facecolor('#28a745')  # Green - high similarity
-        
-        ax.set_xlabel("Similarity with Question (%)")
-        ax.set_ylabel("Number of Sentences")
-        ax.set_xlim(0, 100)
-        ax.grid(axis="y", alpha=0.2)
-        
-        st.pyplot(fig, use_container_width=True)
-        
-        # Simple interpretation
-        low_pct = np.mean(sims_pct < 40) * 100
-        mid_pct = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100
-        high_pct = np.mean(sims_pct >= 70) * 100
-        
-        st.markdown(f"""
-        <div class="info-box">
-            <strong>📈 What this means:</strong><br>
-            • 🔴 <strong>Low similarity ({low_pct:.1f}%)</strong> — sentences that may be off-topic or hallucinated<br>
-            • 🟡 <strong>Medium similarity ({mid_pct:.1f}%)</strong> — sentences that are somewhat related but may need verification<br>
-            • 🟢 <strong>High similarity ({high_pct:.1f}%)</strong> — sentences that closely match your question
-        </div>
-        """, unsafe_allow_html=True)
+# Simple similarity distribution
+st.markdown("### 📊 Response Coherence Overview")
+
+sims_pct = _compute_histogram_data(result.sentence_scores)
+
+# Create figure with a larger size for better visibility
+fig, ax = plt.subplots(figsize=(10, 4))
+
+# Create histogram with better styling
+n, bins, patches = ax.hist(sims_pct, bins=8, edgecolor='white', linewidth=1.5)
+
+# Color code the bars for better understanding
+for i, patch in enumerate(patches):
+    if bins[i] < 40:
+        patch.set_facecolor('#dc3545')  # Red - low similarity
+        patch.set_alpha(0.8)
+    elif bins[i] < 70:
+        patch.set_facecolor('#ffc107')  # Yellow - medium similarity
+        patch.set_alpha(0.8)
+    else:
+        patch.set_facecolor('#28a745')  # Green - high similarity
+        patch.set_alpha(0.8)
+
+# Add labels and title
+ax.set_xlabel("Similarity with Question (%)", fontsize=12, fontweight='bold')
+ax.set_ylabel("Number of Sentences", fontsize=12, fontweight='bold')
+ax.set_xlim(0, 100)
+ax.grid(axis="y", alpha=0.3, linestyle='--')
+
+# Add value labels on top of bars
+for i, (rect, bin_val) in enumerate(zip(patches, bins)):
+    height = rect.get_height()
+    if height > 0:
+        ax.text(rect.get_x() + rect.get_width()/2., height + 0.1,
+                f'{int(height)}', ha='center', va='bottom', fontweight='bold')
+
+# Display the plot
+st.pyplot(fig, use_container_width=True)
+
+# Simple interpretation with better formatting
+low_pct = np.mean(sims_pct < 40) * 100
+mid_pct = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100
+high_pct = np.mean(sims_pct >= 70) * 100
+
+st.markdown("""
+<div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; border-left: 4px solid #667eea;">
+    <h4 style="margin-top: 0; color: #333;">📈 Understanding the Results</h4>
+    <p style="margin-bottom: 0.5rem;">The histogram shows how each sentence in the response relates to your question:</p>
+    <ul style="margin-bottom: 0;">
+        <li><span style="color: #dc3545; font-weight: bold;">🔴 Low similarity ({:.1f}%)</span> — sentences that may be off-topic or hallucinated</li>
+        <li><span style="color: #ffc107; font-weight: bold;">🟡 Medium similarity ({:.1f}%)</span> — sentences that are somewhat related but may need verification</li>
+        <li><span style="color: #28a745; font-weight: bold;">🟢 High similarity ({:.1f}%)</span> — sentences that closely match your question</li>
+    </ul>
+</div>
+""".format(low_pct, mid_pct, high_pct), unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     main()
+
 
