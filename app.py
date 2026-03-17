@@ -604,57 +604,62 @@ def main():
                          help="Weighted score (confirmed = 100%, partial = 50%)")
 
         # High-risk sentences
-        st.markdown("### ⚠️ Sentences Requiring Attention")
-        
-        risk_threshold = 60.0
-        risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
-        fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
+        # High-risk sentences
+st.markdown("### ⚠️ Sentences Requiring Attention")
 
-        if not risky_sentences:
-            st.success("🎉 No high-risk sentences detected! The response appears to be well-aligned with your question.")
-        else:
-            st.warning(f"Found {len(risky_sentences)} sentence(s) that may require verification")
+risk_threshold = 60.0
+risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
+fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
+
+if not risky_sentences:
+    st.success("🎉 No high-risk sentences detected! The response appears to be well-aligned with your question.")
+else:
+    st.warning(f"Found {len(risky_sentences)} sentence(s) that may require verification")
+    
+    for idx, s in enumerate(risky_sentences, 1):
+        fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
+        
+        with st.container():
+            # Sentence card with the actual text
+            st.markdown(f"""
+            <div style="background: white; border-radius: 10px; padding: 1rem; margin: 0.5rem 0; border: 1px solid #f0f0f0; border-left: 4px solid #667eea;">
+                <strong style="color: #333;">#{idx}</strong> 
+                <span style="color: #1e1e1e;">{s.sentence}</span>
+            </div>
+            """, unsafe_allow_html=True)
             
-            for idx, s in enumerate(risky_sentences, 1):
-                fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
+            col_risk_tag, col_similarity = st.columns([1, 1])
+            
+            with col_risk_tag:
+                if s.risk < 30:
+                    st.markdown("🟢 **Risk:** Low")
+                elif s.risk < 60:
+                    st.markdown("🟡 **Risk:** Moderate")
+                else:
+                    st.markdown("🔴 **Risk:** High")
+            
+            with col_similarity:
+                st.markdown(f"📊 **Similarity:** {s.similarity:.2f}")
+            
+            if fr:
+                # Status with emoji and explanation
+                if fr.status == "confirmed":
+                    st.success(f"✅ {fr.explanation}")
+                elif fr.status == "partial":
+                    st.warning(f"🟡 {fr.explanation}")
+                elif fr.status == "contradicted":
+                    st.error(f"❌ {fr.explanation}")
+                else:
+                    st.info(f"❓ {fr.explanation}")
                 
-                with st.container():
-                    st.markdown(f"""
-                    <div class="sentence-card">
-                        <strong>#{idx}</strong> {s.sentence}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    col_risk_tag, col_similarity = st.columns([1, 1])
-                    
-                    with col_risk_tag:
-                        if s.risk < 30:
-                            st.markdown("🟢 **Risk:** Low")
-                        elif s.risk < 60:
-                            st.markdown("🟡 **Risk:** Moderate")
-                        else:
-                            st.markdown("🔴 **Risk:** High")
-                    
-                    with col_similarity:
-                        st.markdown(f"📊 **Similarity:** {s.similarity:.2f}")
-                    
-                    if fr:
-                        if fr.status == "confirmed":
-                            st.success(f"✅ {fr.explanation}")
-                        elif fr.status == "partial":
-                            st.warning(f"🟡 {fr.explanation}")
-                        elif fr.status == "contradicted":
-                            st.error(f"❌ {fr.explanation}")
-                        else:
-                            st.info(f"❓ {fr.explanation}")
-                        
-                        if fr.source_title:
-                            if fr.source_url:
-                                st.markdown(f"📚 **Source:** [{fr.source_title}]({fr.source_url})")
-                            else:
-                                st.markdown(f"📚 **Source:** {fr.source_title}")
-                    
-                    st.markdown("---")
+                # Source information
+                if fr.source_title:
+                    if fr.source_url:
+                        st.markdown(f"📚 **Source:** [{fr.source_title}]({fr.source_url})")
+                    else:
+                        st.markdown(f"📚 **Source:** {fr.source_title}")
+            
+            st.markdown("---")
 
         # Simple similarity distribution
         st.markdown("### 📊 Response Coherence Overview")
@@ -696,3 +701,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
