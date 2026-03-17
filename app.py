@@ -15,10 +15,157 @@ from semantic_analyzer import analyze_semantic_consistency, SentenceScore, get_m
 
 # ========== PAGE CONFIGURATION ==========
 st.set_page_config(
-    page_title="LLM Hallucination Risk Checker",
-    page_icon="🧠",
+    page_title="LLM Hallucination Checker",
+    page_icon="🔍",
     layout="centered",
+    initial_sidebar_state="collapsed"
 )
+
+# ========== CUSTOM CSS ==========
+st.markdown("""
+<style>
+    /* Main title styling */
+    .main-title {
+        font-size: 3rem !important;
+        font-weight: 800 !important;
+        background: linear-gradient(45deg, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-align: center;
+        margin-bottom: 0.5rem !important;
+    }
+    
+    /* Subtitle styling */
+    .subtitle {
+        text-align: center;
+        color: #666;
+        font-size: 1.1rem;
+        margin-bottom: 2rem !important;
+    }
+    
+    /* Card styling */
+    .card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 15px;
+        padding: 1.5rem;
+        color: white;
+        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+    }
+    
+    /* Risk meter styling */
+    .risk-meter {
+        background: white;
+        border-radius: 10px;
+        padding: 1.5rem;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    
+    /* Status badges */
+    .status-badge {
+        display: inline-block;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-right: 0.5rem;
+    }
+    
+    .badge-confirmed {
+        background: #d4edda;
+        color: #155724;
+    }
+    
+    .badge-partial {
+        background: #fff3cd;
+        color: #856404;
+    }
+    
+    .badge-contradicted {
+        background: #f8d7da;
+        color: #721c24;
+    }
+    
+    .badge-no-source {
+        background: #e2e3e5;
+        color: #383d41;
+    }
+    
+    /* Stat cards */
+    .stat-card {
+        background: white;
+        border-radius: 10px;
+        padding: 1rem;
+        text-align: center;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        border: 1px solid #f0f0f0;
+    }
+    
+    .stat-number {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #667eea;
+    }
+    
+    .stat-label {
+        color: #666;
+        font-size: 0.9rem;
+    }
+    
+    /* Form styling */
+    .stTextArea textarea {
+        border-radius: 10px !important;
+        border: 2px solid #f0f0f0 !important;
+        transition: all 0.3s !important;
+    }
+    
+    .stTextArea textarea:focus {
+        border-color: #667eea !important;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+    }
+    
+    /* Button styling */
+    .stButton button {
+        background: linear-gradient(45deg, #667eea, #764ba2) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 0.75rem 2rem !important;
+        font-weight: 600 !important;
+        font-size: 1.1rem !important;
+        transition: all 0.3s !important;
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3) !important;
+    }
+    
+    .stButton button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4) !important;
+    }
+    
+    /* Divider styling */
+    .custom-divider {
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #667eea, #764ba2, #667eea, transparent);
+        margin: 2rem 0;
+    }
+    
+    /* Info boxes */
+    .info-box {
+        background: #f8f9fa;
+        border-left: 4px solid #667eea;
+        border-radius: 5px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+    
+    /* Metrics styling */
+    .metric-container {
+        background: white;
+        border-radius: 10px;
+        padding: 1rem;
+        border: 1px solid #f0f0f0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ========== ENVIRONMENT VARIABLES ==========
 load_dotenv()
@@ -283,182 +430,293 @@ def _compute_histogram_data(sentence_scores: List[SentenceScore]):
 
 # ========== MAIN APPLICATION ==========
 def main():
-    st.title("LLM Hallucination Checker")
-    st.caption(
-        "Quick hallucination risk assessment for ChatGPT, Grok, and other LLM responses. "
-        "A tool for students, journalists, and marketers."
-    )
+    # Custom title
+    st.markdown('<h1 class="main-title">🔍 LLM Hallucination Checker</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Advanced AI response validation with semantic analysis and fact-checking</p>', unsafe_allow_html=True)
+    
+    # Welcome card
+    with st.container():
+        st.markdown("""
+        <div class="card">
+            <h3 style="color: white; margin-top: 0;">🎯 How it works</h3>
+            <p style="color: rgba(255,255,255,0.9); margin-bottom: 0;">
+                Our engine analyzes LLM responses using two complementary methods:<br>
+                <strong>1. Semantic coherence</strong> — measures how well each sentence relates to your question<br>
+                <strong>2. Factual verification</strong> — cross-references claims with Wikipedia and web sources
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
     with st.form(key="qa_form"):
-        question = st.text_area(
-            "Question you asked the LLM",
-            height=120,
-            placeholder="e.g., Explain the causes of the 2008 financial crisis in simple terms...",
-        )
-        answer = st.text_area(
-            "LLM Response (ChatGPT, Grok, etc.)",
-            height=220,
-            placeholder="Paste the complete model response here...",
-        )
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            question = st.text_area(
+                "📝 **Your Question**",
+                height=150,
+                placeholder="e.g., Explain the causes of the 2008 financial crisis...",
+                help="Enter the exact question you asked the AI model"
+            )
+        
+        with col2:
+            answer = st.text_area(
+                "🤖 **AI Response**",
+                height=150,
+                placeholder="Paste the complete model response here...",
+                help="Copy and paste the entire response from ChatGPT, Grok, or any other LLM"
+            )
 
-        submitted = st.form_submit_button("Check", use_container_width=True)
+        submitted = st.form_submit_button("🚀 Analyze Response", use_container_width=True)
 
     if submitted:
-        if not question.strip() and not answer.strip():
-            st.warning("Please enter both question and answer to start the check.")
-            return
-        if not question.strip():
-            st.warning("You forgot to enter the question. Please provide your query to the LLM.")
-            return
-        if not answer.strip():
-            st.warning("You forgot to paste the LLM response. Copy the complete answer and try again.")
+        if not question.strip() or not answer.strip():
+            st.error("⚠️ Please provide both a question and an answer to analyze.")
             return
 
+        # Progress steps
+        progress_bar = st.progress(0, text="Initializing analysis...")
+        
         with st.spinner("Performing semantic analysis..."):
             try:
+                progress_bar.progress(30, text="Analyzing semantic coherence...")
                 result = analyze_semantic_consistency(question, answer)
             except Exception as e:
-                st.error(f"Something went wrong during semantic analysis: {str(e)}")
+                st.error(f"❌ Semantic analysis failed: {str(e)}")
                 return
 
         try:
-            with st.spinner("Checking facts against open sources..."):
+            progress_bar.progress(60, text="Checking facts against sources...")
+            with st.spinner("Querying Wikipedia and web sources..."):
                 fact_results: List[FactCheckResult] = fact_check_sentences(result.sentence_scores)
             fact_check_available = True
+            progress_bar.progress(100, text="Analysis complete!")
             
         except Exception as e:
             fact_results = []
             fact_check_available = False
-            st.warning(f"Fact check temporarily unavailable: {str(e)}")
+            st.warning(f"⚠️ Fact check temporarily unavailable: {str(e)}")
+        
+        progress_bar.empty()
 
-        col_score, col_meta = st.columns([1, 1.2])
-        with col_score:
-            st.subheader("Overall Hallucination Risk")
-            st.metric(label="Risk (0–100%)", value=f"{result.overall_risk:.1f}%")
-
+        # Results header
+        st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+        st.markdown("## 📊 Analysis Results")
+        
+        # Risk meter and key metrics
+        col_risk, col_stats = st.columns([1, 1])
+        
+        with col_risk:
             risk = result.overall_risk
-            if risk < 20:
-                text = "Low risk. Response is generally consistent with the question."
-            elif risk < 50:
-                text = "Moderate risk. Selective verification of key facts recommended."
-            elif risk < 80:
-                text = "Elevated risk. Verify main claims and numbers."
+            
+            # Color-coded risk display
+            if risk < 30:
+                risk_color = "#28a745"
+                risk_emoji = "🟢"
+                risk_level = "Low Risk"
+            elif risk < 60:
+                risk_color = "#ffc107"
+                risk_emoji = "🟡"
+                risk_level = "Moderate Risk"
             else:
-                text = "Very high risk. Response may contain significant inaccuracies or be off-topic."
-            st.write(text)
+                risk_color = "#dc3545"
+                risk_emoji = "🔴"
+                risk_level = "High Risk"
+            
+            st.markdown(f"""
+            <div class="risk-meter">
+                <h3 style="margin-top: 0; color: {risk_color};">{risk_emoji} {risk_level}</h3>
+                <div style="background: #f0f0f0; height: 30px; border-radius: 15px; margin: 10px 0;">
+                    <div style="background: {risk_color}; width: {risk}%; height: 30px; border-radius: 15px; text-align: center; line-height: 30px; color: white; font-weight: bold;">
+                        {risk:.1f}%
+                    </div>
+                </div>
+                <p style="margin-bottom: 0; color: #666;">
+                    { 'Response is generally consistent' if risk < 30 else 
+                      'Selective verification recommended' if risk < 60 else 
+                      'Critical review needed' }
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_stats:
+            st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+            st.markdown("### 📈 Quick Stats")
+            
+            col_stat1, col_stat2 = st.columns(2)
+            with col_stat1:
+                st.markdown(f"""
+                <div class="stat-card">
+                    <div class="stat-number">{result.metadata['num_sentences']}</div>
+                    <div class="stat-label">Sentences</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                <div class="stat-card">
+                    <div class="stat-number">{result.metadata['qa_similarity']:.2f}</div>
+                    <div class="stat-label">QA Similarity</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col_stat2:
+                confirmed = sum(1 for fr in fact_results if fr.status == "confirmed") if fact_results else 0
+                st.markdown(f"""
+                <div class="stat-card">
+                    <div class="stat-number">{confirmed}</div>
+                    <div class="stat-label">Confirmed</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                contradicted = sum(1 for fr in fact_results if fr.status == "contradicted") if fact_results else 0
+                st.markdown(f"""
+                <div class="stat-card">
+                    <div class="stat-number">{contradicted}</div>
+                    <div class="stat-label">Contradictions</div>
+                </div>
+                """, unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        with col_meta:
-            st.subheader("Semantic Coherence")
-            st.write(
-                f"Question–answer similarity (cosine): **{result.metadata['qa_similarity']:.2f}**  "
-                f"(0 = no similarity, 1 = perfect match)"
-            )
-            st.write(
-                f"Average sentence similarity: **{result.metadata['mean_sentence_similarity']:.2f}**  "
-                f"(σ = {result.metadata['std_sentence_similarity']:.2f})"
-            )
-            st.write(f"Number of sentences: **{result.metadata['num_sentences']}**")
+        st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
 
-            if not fact_check_available:
-                st.markdown("**Fact check:** temporarily unavailable.")
-            elif fact_results:
+        # Detailed metrics
+        with st.expander("🔬 View Detailed Semantic Metrics", expanded=False):
+            col_qa, col_sent = st.columns(2)
+            
+            with col_qa:
+                st.markdown("**Question-Answer Similarity**")
+                fig_qa, ax_qa = plt.subplots(figsize=(4, 2))
+                ax_qa.barh(['Similarity'], [result.metadata['qa_similarity']], color='#667eea')
+                ax_qa.set_xlim(0, 1)
+                ax_qa.set_xlabel('Cosine Similarity')
+                st.pyplot(fig_qa, use_container_width=True)
+            
+            with col_sent:
+                st.markdown("**Sentence Similarity Distribution**")
+                fig_sent, ax_sent = plt.subplots(figsize=(4, 2))
+                sims = [s.similarity for s in result.sentence_scores]
+                ax_sent.boxplot(sims, vert=False)
+                ax_sent.set_xlabel('Similarity')
+                st.pyplot(fig_sent, use_container_width=True)
+
+        # Fact check summary with badges
+        if fact_check_available and fact_results:
+            st.markdown("### ✅ Fact Check Summary")
+            
+            col_badges, col_stats_detail = st.columns([1, 1])
+            
+            with col_badges:
                 confirmed = sum(1 for fr in fact_results if fr.status == "confirmed")
                 partial = sum(1 for fr in fact_results if fr.status == "partial")
                 contradicted = sum(1 for fr in fact_results if fr.status == "contradicted")
                 no_source = sum(1 for fr in fact_results if fr.status == "no_source")
                 total_fc = len(fact_results)
+                
+                st.markdown(f"""
+                <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                    <span class="status-badge badge-confirmed">✅ Confirmed: {confirmed}</span>
+                    <span class="status-badge badge-partial">🟡 Partial: {partial}</span>
+                    <span class="status-badge badge-contradicted">❌ Contradicted: {contradicted}</span>
+                    <span class="status-badge badge-no-source">❓ No source: {no_source}</span>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col_stats_detail:
+                accuracy = (confirmed / total_fc * 100) if total_fc > 0 else 0
+                st.metric("Factual Accuracy", f"{accuracy:.1f}%", 
+                         delta=f"{confirmed}/{total_fc} confirmed")
 
-                st.markdown("**Fact check results:**")
-                st.write(
-                    f"- ✅ fully confirmed: **{confirmed}** out of {total_fc}\n"
-                    f"- 🟡 partially confirmed: **{partial}**\n"
-                    f"- ❌ contradicts sources: **{contradicted}**\n"
-                    f"- ❓ no sources found: **{no_source}**"
-                )
-            else:
-                st.markdown("**Fact check:** no suitable sentences found for verification.")
-
-        st.markdown("---")
-        st.subheader("Sentence Coherence Histogram")
-        st.caption(
-            "Each bar shows how many sentences have similarity to the question in a given range. "
-            "The further right and higher the bars, the more phrases are semantically close to the question."
-        )
-
-        sims_pct = _compute_histogram_data(result.sentence_scores)
-
-        fig, ax = plt.subplots(figsize=(6, 3))
-        ax.hist(sims_pct, bins=8, color="#4C78A8", edgecolor="white")
-        ax.set_xlabel("Semantic similarity with question, %")
-        ax.set_ylabel("Number of sentences")
-        ax.set_xlim(0, 100)
-        ax.grid(axis="y", alpha=0.2)
-
-        st.pyplot(fig, use_container_width=True)
-
-        # Simple analytics by similarity zones
-        low = np.mean(sims_pct < 40) * 100.0
-        mid = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100.0
-        high = np.mean(sims_pct >= 70) * 100.0
-
-        st.markdown(
-            f"- **Low similarity (< 40%)**: approximately {low:.1f}% of sentences — potentially risky areas.\n"
-            f"- **Medium similarity (40–70%)**: approximately {mid:.1f}% of sentences — selective verification recommended.\n"
-            f"- **High similarity (> 70%)**: approximately {high:.1f}% of sentences — generally safe phrases."
-        )
-
-        st.markdown("### High-Risk Sentences (Semantic + Factual)")
-        st.caption(
-            "Semantic risk shows how much a phrase deviates from the question. "
-            "Factual status is based on comparison with Wikipedia sources."
-        )
-
+        # High-risk sentences
+        st.markdown("### ⚠️ High-Risk Sentences")
+        
         risk_threshold = 60.0
         risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
-
-        # Index fact checks by sentence text for quick access
         fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
 
         if not risky_sentences:
-            st.success("No sentences with high semantic risk detected.")
+            st.success("🎉 No high-risk sentences detected! The response appears to be well-aligned with your question.")
         else:
-            for s in risky_sentences:
+            st.warning(f"Found {len(risky_sentences)} sentence(s) that may require verification")
+            
+            for idx, s in enumerate(risky_sentences, 1):
                 fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
-                st.markdown(
-                    f"- **Semantic risk {s.risk:.1f}% (sim {s.similarity:.2f})** — {s.sentence}"
-                )
-                if fr:
-                    if fr.status == "confirmed":
-                        status_text = "Fact check: sources generally confirm the statement."
-                    elif fr.status == "partial":
-                        status_text = "Fact check: sources describe similar facts but not verbatim — interpret with caution."
-                    elif fr.status == "contradicted":
-                        status_text = "Fact check: sources contradict this — verify carefully."
-                    else:
-                        status_text = "Fact check: no suitable sources found, manual verification needed."
-
-                    st.markdown(f"  ↳ *{status_text}*")
-                    # Numbers/dates breakdown
-                    if fr.numbers_status != "no_numbers":
-                        if fr.numbers_status == "match":
-                            num_text = "Numbers/dates match the source."
-                        elif fr.numbers_status == "partial":
-                            num_text = (
-                                "Some numbers/dates match the source, but there are discrepancies — check carefully."
-                            )
+                
+                with st.container():
+                    col_marker, col_content = st.columns([0.05, 0.95])
+                    
+                    with col_marker:
+                        st.markdown(f"**{idx}.**")
+                    
+                    with col_content:
+                        st.markdown(f"**{s.sentence}**")
+                        
+                        # Risk indicator
+                        if s.risk < 30:
+                            risk_tag = "🟢 Low"
+                        elif s.risk < 60:
+                            risk_tag = "🟡 Moderate"
                         else:
-                            num_text = "Numbers/dates don't match the source — high probability of error."
+                            risk_tag = "🔴 High"
+                        
+                        st.markdown(f"**Risk:** {risk_tag} ({s.risk:.1f}%) | **Similarity:** {s.similarity:.2f}")
+                        
+                        if fr:
+                            if fr.status == "confirmed":
+                                badge = '<span class="status-badge badge-confirmed">✅ Confirmed</span>'
+                            elif fr.status == "partial":
+                                badge = '<span class="status-badge badge-partial">🟡 Partial</span>'
+                            elif fr.status == "contradicted":
+                                badge = '<span class="status-badge badge-contradicted">❌ Contradicted</span>'
+                            else:
+                                badge = '<span class="status-badge badge-no-source">❓ No source</span>'
+                            
+                            st.markdown(f"**Fact check:** {badge} {fr.explanation}", unsafe_allow_html=True)
+                            
+                            if fr.source_title:
+                                if fr.source_url:
+                                    st.markdown(f"📚 **Source:** [{fr.source_title}]({fr.source_url})")
+                                else:
+                                    st.markdown(f"📚 **Source:** {fr.source_title}")
+                        
+                        st.markdown("---")
 
-                        st.markdown(f"  ↳ {num_text}")
-                        st.markdown(
-                            f"    · In response: `{', '.join(fr.sentence_numbers)}`  · In source: `{', '.join(fr.source_numbers)}`"
-                        )
-
-                    if fr.source_title:
-                        if fr.source_url:
-                            st.markdown(f"  ↳ Source: **[{fr.source_title}]({fr.source_url})**")
-                        else:
-                            st.markdown(f"  ↳ Source: **{fr.source_title}**")
+        # Histogram
+        st.markdown("### 📊 Similarity Distribution")
+        sims_pct = _compute_histogram_data(result.sentence_scores)
+        
+        fig_hist, ax_hist = plt.subplots(figsize=(10, 4))
+        n, bins, patches = ax_hist.hist(sims_pct, bins=8, color='#667eea', edgecolor='white', alpha=0.7)
+        
+        # Color code the bars
+        for i, patch in enumerate(patches):
+            if bins[i] < 40:
+                patch.set_facecolor('#dc3545')
+            elif bins[i] < 70:
+                patch.set_facecolor('#ffc107')
+            else:
+                patch.set_facecolor('#28a745')
+        
+        ax_hist.set_xlabel("Semantic Similarity with Question (%)", fontsize=11)
+        ax_hist.set_ylabel("Number of Sentences", fontsize=11)
+        ax_hist.set_xlim(0, 100)
+        ax_hist.grid(axis="y", alpha=0.2)
+        
+        st.pyplot(fig_hist, use_container_width=True)
+        
+        # Quick interpretation
+        low_pct = np.mean(sims_pct < 40) * 100
+        mid_pct = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100
+        high_pct = np.mean(sims_pct >= 70) * 100
+        
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>📈 Distribution Insight:</strong><br>
+            • 🔴 <strong>Low similarity (&lt;40%)</strong>: {low_pct:.1f}% — potential hallucinations<br>
+            • 🟡 <strong>Medium similarity (40-70%)</strong>: {mid_pct:.1f}% — may need verification<br>
+            • 🟢 <strong>High similarity (&gt;70%)</strong>: {high_pct:.1f}% — likely accurate
+        </div>
+        """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
