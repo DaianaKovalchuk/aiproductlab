@@ -604,122 +604,118 @@ def main():
                          help="Weighted score (confirmed = 100%, partial = 50%)")
 
         # High-risk sentences
-        # High-risk sentences
-st.markdown("### ⚠️ Sentences Requiring Attention")
-
-risk_threshold = 60.0
-risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
-fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
-
-if not risky_sentences:
-    st.success("🎉 No high-risk sentences detected! The response appears to be well-aligned with your question.")
-else:
-    st.warning(f"Found {len(risky_sentences)} sentence(s) that may require verification")
-    
-    for idx, s in enumerate(risky_sentences, 1):
-        fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
+        st.markdown("### ⚠️ Sentences Requiring Attention")
         
-        with st.container():
-            # Sentence card with the actual text
-            st.markdown(f"""
-            <div style="background: white; border-radius: 10px; padding: 1rem; margin: 0.5rem 0; border: 1px solid #f0f0f0; border-left: 4px solid #667eea;">
-                <strong style="color: #333;">#{idx}</strong> 
-                <span style="color: #1e1e1e;">{s.sentence}</span>
-            </div>
-            """, unsafe_allow_html=True)
+        risk_threshold = 60.0
+        risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
+        fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
+        
+        if not risky_sentences:
+            st.success("🎉 No high-risk sentences detected! The response appears to be well-aligned with your question.")
+        else:
+            st.warning(f"Found {len(risky_sentences)} sentence(s) that may require verification")
             
-            col_risk_tag, col_similarity = st.columns([1, 1])
-            
-            with col_risk_tag:
-                if s.risk < 30:
-                    st.markdown("🟢 **Risk:** Low")
-                elif s.risk < 60:
-                    st.markdown("🟡 **Risk:** Moderate")
-                else:
-                    st.markdown("🔴 **Risk:** High")
-            
-            with col_similarity:
-                st.markdown(f"📊 **Similarity:** {s.similarity:.2f}")
-            
-            if fr:
-                # Status with emoji and explanation
-                if fr.status == "confirmed":
-                    st.success(f"✅ {fr.explanation}")
-                elif fr.status == "partial":
-                    st.warning(f"🟡 {fr.explanation}")
-                elif fr.status == "contradicted":
-                    st.error(f"❌ {fr.explanation}")
-                else:
-                    st.info(f"❓ {fr.explanation}")
+            for idx, s in enumerate(risky_sentences, 1):
+                fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
                 
-                # Source information
-                if fr.source_title:
-                    if fr.source_url:
-                        st.markdown(f"📚 **Source:** [{fr.source_title}]({fr.source_url})")
-                    else:
-                        st.markdown(f"📚 **Source:** {fr.source_title}")
-            
-            st.markdown("---")
+                with st.container():
+                    # Sentence card with the actual text
+                    st.markdown(f"""
+                    <div style="background: white; border-radius: 10px; padding: 1rem; margin: 0.5rem 0; border: 1px solid #f0f0f0; border-left: 4px solid #667eea;">
+                        <strong style="color: #333;">#{idx}</strong> 
+                        <span style="color: #1e1e1e;">{s.sentence}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col_risk_tag, col_similarity = st.columns([1, 1])
+                    
+                    with col_risk_tag:
+                        if s.risk < 30:
+                            st.markdown("🟢 **Risk:** Low")
+                        elif s.risk < 60:
+                            st.markdown("🟡 **Risk:** Moderate")
+                        else:
+                            st.markdown("🔴 **Risk:** High")
+                    
+                    with col_similarity:
+                        st.markdown(f"📊 **Similarity:** {s.similarity:.2f}")
+                    
+                    if fr:
+                        # Status with emoji and explanation
+                        if fr.status == "confirmed":
+                            st.success(f"✅ {fr.explanation}")
+                        elif fr.status == "partial":
+                            st.warning(f"🟡 {fr.explanation}")
+                        elif fr.status == "contradicted":
+                            st.error(f"❌ {fr.explanation}")
+                        else:
+                            st.info(f"❓ {fr.explanation}")
+                        
+                        # Source information
+                        if fr.source_title:
+                            if fr.source_url:
+                                st.markdown(f"📚 **Source:** [{fr.source_title}]({fr.source_url})")
+                            else:
+                                st.markdown(f"📚 **Source:** {fr.source_title}")
+                    
+                    st.markdown("---")
 
         # Simple similarity distribution
-# Simple similarity distribution
-st.markdown("### 📊 Response Coherence Overview")
-
-sims_pct = _compute_histogram_data(result.sentence_scores)
-
-# Create figure with a larger size for better visibility
-fig, ax = plt.subplots(figsize=(10, 4))
-
-# Create histogram with better styling
-n, bins, patches = ax.hist(sims_pct, bins=8, edgecolor='white', linewidth=1.5)
-
-# Color code the bars for better understanding
-for i, patch in enumerate(patches):
-    if bins[i] < 40:
-        patch.set_facecolor('#dc3545')  # Red - low similarity
-        patch.set_alpha(0.8)
-    elif bins[i] < 70:
-        patch.set_facecolor('#ffc107')  # Yellow - medium similarity
-        patch.set_alpha(0.8)
-    else:
-        patch.set_facecolor('#28a745')  # Green - high similarity
-        patch.set_alpha(0.8)
-
-# Add labels and title
-ax.set_xlabel("Similarity with Question (%)", fontsize=12, fontweight='bold')
-ax.set_ylabel("Number of Sentences", fontsize=12, fontweight='bold')
-ax.set_xlim(0, 100)
-ax.grid(axis="y", alpha=0.3, linestyle='--')
-
-# Add value labels on top of bars
-for i, (rect, bin_val) in enumerate(zip(patches, bins)):
-    height = rect.get_height()
-    if height > 0:
-        ax.text(rect.get_x() + rect.get_width()/2., height + 0.1,
-                f'{int(height)}', ha='center', va='bottom', fontweight='bold')
-
-# Display the plot
-st.pyplot(fig, use_container_width=True)
-
-# Simple interpretation with better formatting
-low_pct = np.mean(sims_pct < 40) * 100
-mid_pct = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100
-high_pct = np.mean(sims_pct >= 70) * 100
-
-st.markdown("""
-<div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; border-left: 4px solid #667eea;">
-    <h4 style="margin-top: 0; color: #333;">📈 Understanding the Results</h4>
-    <p style="margin-bottom: 0.5rem;">The histogram shows how each sentence in the response relates to your question:</p>
-    <ul style="margin-bottom: 0;">
-        <li><span style="color: #dc3545; font-weight: bold;">🔴 Low similarity ({:.1f}%)</span> — sentences that may be off-topic or hallucinated</li>
-        <li><span style="color: #ffc107; font-weight: bold;">🟡 Medium similarity ({:.1f}%)</span> — sentences that are somewhat related but may need verification</li>
-        <li><span style="color: #28a745; font-weight: bold;">🟢 High similarity ({:.1f}%)</span> — sentences that closely match your question</li>
-    </ul>
-</div>
-""".format(low_pct, mid_pct, high_pct), unsafe_allow_html=True)
+        st.markdown("### 📊 Response Coherence Overview")
+        
+        sims_pct = _compute_histogram_data(result.sentence_scores)
+        
+        # Create figure with a larger size for better visibility
+        fig, ax = plt.subplots(figsize=(10, 4))
+        
+        # Create histogram with better styling
+        n, bins, patches = ax.hist(sims_pct, bins=8, edgecolor='white', linewidth=1.5)
+        
+        # Color code the bars for better understanding
+        for i, patch in enumerate(patches):
+            if bins[i] < 40:
+                patch.set_facecolor('#dc3545')  # Red - low similarity
+                patch.set_alpha(0.8)
+            elif bins[i] < 70:
+                patch.set_facecolor('#ffc107')  # Yellow - medium similarity
+                patch.set_alpha(0.8)
+            else:
+                patch.set_facecolor('#28a745')  # Green - high similarity
+                patch.set_alpha(0.8)
+        
+        # Add labels and title
+        ax.set_xlabel("Similarity with Question (%)", fontsize=12, fontweight='bold')
+        ax.set_ylabel("Number of Sentences", fontsize=12, fontweight='bold')
+        ax.set_xlim(0, 100)
+        ax.grid(axis="y", alpha=0.3, linestyle='--')
+        
+        # Add value labels on top of bars
+        for i, (rect, bin_val) in enumerate(zip(patches, bins)):
+            height = rect.get_height()
+            if height > 0:
+                ax.text(rect.get_x() + rect.get_width()/2., height + 0.1,
+                        f'{int(height)}', ha='center', va='bottom', fontweight='bold')
+        
+        # Display the plot
+        st.pyplot(fig, use_container_width=True)
+        
+        # Simple interpretation with better formatting
+        low_pct = np.mean(sims_pct < 40) * 100
+        mid_pct = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100
+        high_pct = np.mean(sims_pct >= 70) * 100
+        
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; border-left: 4px solid #667eea;">
+            <h4 style="margin-top: 0; color: #333;">📈 Understanding the Results</h4>
+            <p style="margin-bottom: 0.5rem;">The histogram shows how each sentence in the response relates to your question:</p>
+            <ul style="margin-bottom: 0;">
+                <li><span style="color: #dc3545; font-weight: bold;">🔴 Low similarity ({low_pct:.1f}%)</span> — sentences that may be off-topic or hallucinated</li>
+                <li><span style="color: #ffc107; font-weight: bold;">🟡 Medium similarity ({mid_pct:.1f}%)</span> — sentences that are somewhat related but may need verification</li>
+                <li><span style="color: #28a745; font-weight: bold;">🟢 High similarity ({high_pct:.1f}%)</span> — sentences that closely match your question</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
     main()
-
-
