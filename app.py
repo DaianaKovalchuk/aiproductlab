@@ -604,71 +604,71 @@ def main():
                          help="Weighted score (confirmed = 100%, partial = 50%)")
 
         # High-risk sentences
-       # High-risk sentences based on semantic analysis
-st.markdown("### ⚠️ Sentences Requiring Attention (Semantic Analysis)")
-st.caption("These sentences show low semantic similarity with your question and may need verification")
-
-risk_threshold = 60.0
-risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
-fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
-
-if not risky_sentences:
-    st.success("🎉 No high-risk sentences detected! All sentences show good semantic alignment with your question.")
-else:
-    st.warning(f"Found {len(risky_sentences)} sentence(s) with low semantic similarity")
-    
-    for idx, s in enumerate(risky_sentences, 1):
-        fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
+        # High-risk sentences based on semantic analysis
+        st.markdown("### ⚠️ Sentences Requiring Attention (Semantic Analysis)")
+        st.caption("These sentences show low semantic similarity with your question and may need verification")
         
-        with st.expander(f"**Sentence #{idx}**", expanded=True):
-            # Show the actual sentence (THIS IS THE MAIN THING)
-            st.markdown(f"**Text:** {s.sentence}")
+        risk_threshold = 60.0
+        risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
+        fc_by_sentence = {fr.sentence: fr for fr in fact_results} if fact_results else {}
+        
+        if not risky_sentences:
+            st.success("🎉 No high-risk sentences detected! All sentences show good semantic alignment with your question.")
+        else:
+            st.warning(f"Found {len(risky_sentences)} sentence(s) with low semantic similarity")
             
-            # Semantic analysis (PRIMARY)
-            st.markdown("**📊 Semantic Analysis:**")
-            col1, col2 = st.columns(2)
-            with col1:
-                if s.risk < 30:
-                    st.success(f"**Risk Level:** Low ({s.risk:.1f}%)")
-                elif s.risk < 60:
-                    st.warning(f"**Risk Level:** Moderate ({s.risk:.1f}%)")
-                else:
-                    st.error(f"**Risk Level:** High ({s.risk:.1f}%)")
-            
-            with col2:
-                st.info(f"**Similarity to Question:** {s.similarity:.2f}")
-            
-            # Interpretation
-            if s.similarity < 0.4:
-                st.markdown("💡 *This sentence appears to deviate significantly from your question*")
-            elif s.similarity < 0.6:
-                st.markdown("💡 *This sentence is somewhat related but may need verification*")
-            else:
-                st.markdown("💡 *This sentence is well-aligned with your question*")
-            
-            # Fact check (SECONDARY - only if available)
-            if fr:
-                st.markdown("---")
-                st.markdown("**🔍 Fact Check (Secondary):**")
+            for idx, s in enumerate(risky_sentences, 1):
+                fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
                 
-                if fr.status == "confirmed":
-                    st.success(f"✅ {fr.explanation}")
-                elif fr.status == "partial":
-                    st.warning(f"🟡 {fr.explanation}")
-                elif fr.status == "contradicted":
-                    st.error(f"❌ {fr.explanation}")
-                else:
-                    st.info(f"❓ {fr.explanation}")
-                
-                if fr.source_title:
-                    if fr.source_url:
-                        st.markdown(f"📚 **Source:** [{fr.source_title}]({fr.source_url})")
+                with st.expander(f"**Sentence #{idx}**", expanded=True):
+                    # Show the actual sentence (THIS IS THE MAIN THING)
+                    st.markdown(f"**Text:** {s.sentence}")
+                    
+                    # Semantic analysis (PRIMARY)
+                    st.markdown("**📊 Semantic Analysis:**")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if s.risk < 30:
+                            st.success(f"**Risk Level:** Low ({s.risk:.1f}%)")
+                        elif s.risk < 60:
+                            st.warning(f"**Risk Level:** Moderate ({s.risk:.1f}%)")
+                        else:
+                            st.error(f"**Risk Level:** High ({s.risk:.1f}%)")
+                    
+                    with col2:
+                        st.info(f"**Similarity to Question:** {s.similarity:.2f}")
+                    
+                    # Interpretation
+                    if s.similarity < 0.4:
+                        st.markdown("💡 *This sentence appears to deviate significantly from your question*")
+                    elif s.similarity < 0.6:
+                        st.markdown("💡 *This sentence is somewhat related but may need verification*")
                     else:
-                        st.markdown(f"📚 **Source:** {fr.source_title}")
-            
-            st.markdown("---")
+                        st.markdown("💡 *This sentence is well-aligned with your question*")
+                    
+                    # Fact check (SECONDARY - only if available)
+                    if fr:
+                        st.markdown("---")
+                        st.markdown("**🔍 Fact Check (Secondary):**")
+                        
+                        if fr.status == "confirmed":
+                            st.success(f"✅ {fr.explanation}")
+                        elif fr.status == "partial":
+                            st.warning(f"🟡 {fr.explanation}")
+                        elif fr.status == "contradicted":
+                            st.error(f"❌ {fr.explanation}")
+                        else:
+                            st.info(f"❓ {fr.explanation}")
+                        
+                        if fr.source_title:
+                            if fr.source_url:
+                                st.markdown(f"📚 **Source:** [{fr.source_title}]({fr.source_url})")
+                            else:
+                                st.markdown(f"📚 **Source:** {fr.source_title}")
+                    
+                    st.markdown("---")
 
-        # Simple similarity distribution
+               # Simple similarity distribution
         st.markdown("### 📊 Response Coherence Overview")
         
         sims_pct = _compute_histogram_data(result.sentence_scores)
@@ -727,4 +727,5 @@ else:
 
 if __name__ == "__main__":
     main()
+
 
