@@ -157,12 +157,14 @@ st.markdown("""
         margin: 1rem 0;
     }
     
-    /* Metrics styling */
-    .metric-container {
+    /* Sentence card */
+    .sentence-card {
         background: white;
         border-radius: 10px;
         padding: 1rem;
+        margin: 0.5rem 0;
         border: 1px solid #f0f0f0;
+        border-left: 4px solid #667eea;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -515,14 +517,17 @@ def main():
                 risk_color = "#28a745"
                 risk_emoji = "🟢"
                 risk_level = "Low Risk"
+                risk_message = "Response is generally consistent with your question"
             elif risk < 60:
                 risk_color = "#ffc107"
                 risk_emoji = "🟡"
                 risk_level = "Moderate Risk"
+                risk_message = "Selective verification of key facts recommended"
             else:
                 risk_color = "#dc3545"
                 risk_emoji = "🔴"
                 risk_level = "High Risk"
+                risk_message = "Critical review needed - potential hallucinations detected"
             
             st.markdown(f"""
             <div class="risk-meter">
@@ -532,11 +537,7 @@ def main():
                         {risk:.1f}%
                     </div>
                 </div>
-                <p style="margin-bottom: 0; color: #666;">
-                    { 'Response is generally consistent' if risk < 30 else 
-                      'Selective verification recommended' if risk < 60 else 
-                      'Critical review needed' }
-                </p>
+                <p style="margin-bottom: 0; color: #666;">{risk_message}</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -549,72 +550,47 @@ def main():
                 st.markdown(f"""
                 <div class="stat-card">
                     <div class="stat-number">{result.metadata['num_sentences']}</div>
-                    <div class="stat-label">Sentences</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown(f"""
-                <div class="stat-card">
-                    <div class="stat-number">{result.metadata['qa_similarity']:.2f}</div>
-                    <div class="stat-label">QA Similarity</div>
+                    <div class="stat-label">Total Sentences</div>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col_stat2:
-                confirmed = sum(1 for fr in fact_results if fr.status == "confirmed") if fact_results else 0
-                st.markdown(f"""
-                <div class="stat-card">
-                    <div class="stat-number">{confirmed}</div>
-                    <div class="stat-label">Confirmed</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                contradicted = sum(1 for fr in fact_results if fr.status == "contradicted") if fact_results else 0
-                st.markdown(f"""
-                <div class="stat-card">
-                    <div class="stat-number">{contradicted}</div>
-                    <div class="stat-label">Contradictions</div>
-                </div>
-                """, unsafe_allow_html=True)
+                if fact_check_available and fact_results:
+                    confirmed = sum(1 for fr in fact_results if fr.status == "confirmed")
+                    accuracy = (confirmed / len(fact_results) * 100) if fact_results else 0
+                    st.markdown(f"""
+                    <div class="stat-card">
+                        <div class="stat-number">{accuracy:.0f}%</div>
+                        <div class="stat-label">Factual Accuracy</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="stat-card">
+                        <div class="stat-number">—</div>
+                        <div class="stat-label">Fact Check</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
             st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
-
-        # Detailed metrics
-        with st.expander("🔬 View Detailed Semantic Metrics", expanded=False):
-            col_qa, col_sent = st.columns(2)
-            
-            with col_qa:
-                st.markdown("**Question-Answer Similarity**")
-                fig_qa, ax_qa = plt.subplots(figsize=(4, 2))
-                ax_qa.barh(['Similarity'], [result.metadata['qa_similarity']], color='#667eea')
-                ax_qa.set_xlim(0, 1)
-                ax_qa.set_xlabel('Cosine Similarity')
-                st.pyplot(fig_qa, use_container_width=True)
-            
-            with col_sent:
-                st.markdown("**Sentence Similarity Distribution**")
-                fig_sent, ax_sent = plt.subplots(figsize=(4, 2))
-                sims = [s.similarity for s in result.sentence_scores]
-                ax_sent.boxplot(sims, vert=False)
-                ax_sent.set_xlabel('Similarity')
-                st.pyplot(fig_sent, use_container_width=True)
 
         # Fact check summary with badges
         if fact_check_available and fact_results:
             st.markdown("### ✅ Fact Check Summary")
             
-            col_badges, col_stats_detail = st.columns([1, 1])
+            confirmed = sum(1 for fr in fact_results if fr.status == "confirmed")
+            partial = sum(1 for fr in fact_results if fr.status == "partial")
+            contradicted = sum(1 for fr in fact_results if fr.status == "contradicted")
+            no_source = sum(1 for fr in fact_results if fr.status == "no_source")
+            total_fc = len(fact_results)
+            
+            col_badges, col_confidence = st.columns([2, 1])
             
             with col_badges:
-                confirmed = sum(1 for fr in fact_results if fr.status == "confirmed")
-                partial = sum(1 for fr in fact_results if fr.status == "partial")
-                contradicted = sum(1 for fr in fact_results if fr.status == "contradicted")
-                no_source = sum(1 for fr in fact_results if fr.status == "no_source")
-                total_fc = len(fact_results)
-                
                 st.markdown(f"""
-                <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 1rem;">
                     <span class="status-badge badge-confirmed">✅ Confirmed: {confirmed}</span>
                     <span class="status-badge badge-partial">🟡 Partial: {partial}</span>
                     <span class="status-badge badge-contradicted">❌ Contradicted: {contradicted}</span>
@@ -622,13 +598,13 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
             
-            with col_stats_detail:
-                accuracy = (confirmed / total_fc * 100) if total_fc > 0 else 0
-                st.metric("Factual Accuracy", f"{accuracy:.1f}%", 
-                         delta=f"{confirmed}/{total_fc} confirmed")
+            with col_confidence:
+                confidence_score = (confirmed + partial * 0.5) / total_fc * 100
+                st.metric("Confidence Score", f"{confidence_score:.1f}%", 
+                         help="Weighted score (confirmed = 100%, partial = 50%)")
 
         # High-risk sentences
-        st.markdown("### ⚠️ High-Risk Sentences")
+        st.markdown("### ⚠️ Sentences Requiring Attention")
         
         risk_threshold = 60.0
         risky_sentences = [s for s in result.sentence_scores if s.risk >= risk_threshold]
@@ -643,78 +619,78 @@ def main():
                 fr = fc_by_sentence.get(s.sentence) if fact_check_available else None
                 
                 with st.container():
-                    col_marker, col_content = st.columns([0.05, 0.95])
+                    st.markdown(f"""
+                    <div class="sentence-card">
+                        <strong>#{idx}</strong> {s.sentence}
+                    </div>
+                    """, unsafe_allow_html=True)
                     
-                    with col_marker:
-                        st.markdown(f"**{idx}.**")
+                    col_risk_tag, col_similarity = st.columns([1, 1])
                     
-                    with col_content:
-                        st.markdown(f"**{s.sentence}**")
-                        
-                        # Risk indicator
+                    with col_risk_tag:
                         if s.risk < 30:
-                            risk_tag = "🟢 Low"
+                            st.markdown("🟢 **Risk:** Low")
                         elif s.risk < 60:
-                            risk_tag = "🟡 Moderate"
+                            st.markdown("🟡 **Risk:** Moderate")
                         else:
-                            risk_tag = "🔴 High"
+                            st.markdown("🔴 **Risk:** High")
+                    
+                    with col_similarity:
+                        st.markdown(f"📊 **Similarity:** {s.similarity:.2f}")
+                    
+                    if fr:
+                        if fr.status == "confirmed":
+                            st.success(f"✅ {fr.explanation}")
+                        elif fr.status == "partial":
+                            st.warning(f"🟡 {fr.explanation}")
+                        elif fr.status == "contradicted":
+                            st.error(f"❌ {fr.explanation}")
+                        else:
+                            st.info(f"❓ {fr.explanation}")
                         
-                        st.markdown(f"**Risk:** {risk_tag} ({s.risk:.1f}%) | **Similarity:** {s.similarity:.2f}")
-                        
-                        if fr:
-                            if fr.status == "confirmed":
-                                badge = '<span class="status-badge badge-confirmed">✅ Confirmed</span>'
-                            elif fr.status == "partial":
-                                badge = '<span class="status-badge badge-partial">🟡 Partial</span>'
-                            elif fr.status == "contradicted":
-                                badge = '<span class="status-badge badge-contradicted">❌ Contradicted</span>'
+                        if fr.source_title:
+                            if fr.source_url:
+                                st.markdown(f"📚 **Source:** [{fr.source_title}]({fr.source_url})")
                             else:
-                                badge = '<span class="status-badge badge-no-source">❓ No source</span>'
-                            
-                            st.markdown(f"**Fact check:** {badge} {fr.explanation}", unsafe_allow_html=True)
-                            
-                            if fr.source_title:
-                                if fr.source_url:
-                                    st.markdown(f"📚 **Source:** [{fr.source_title}]({fr.source_url})")
-                                else:
-                                    st.markdown(f"📚 **Source:** {fr.source_title}")
-                        
-                        st.markdown("---")
+                                st.markdown(f"📚 **Source:** {fr.source_title}")
+                    
+                    st.markdown("---")
 
-        # Histogram
-        st.markdown("### 📊 Similarity Distribution")
+        # Simple similarity distribution
+        st.markdown("### 📊 Response Coherence Overview")
+        
         sims_pct = _compute_histogram_data(result.sentence_scores)
         
-        fig_hist, ax_hist = plt.subplots(figsize=(10, 4))
-        n, bins, patches = ax_hist.hist(sims_pct, bins=8, color='#667eea', edgecolor='white', alpha=0.7)
+        fig, ax = plt.subplots(figsize=(10, 3))
+        n, bins, patches = ax.hist(sims_pct, bins=8, edgecolor='white', alpha=0.7)
         
-        # Color code the bars
+        # Color code the bars for better understanding
         for i, patch in enumerate(patches):
             if bins[i] < 40:
-                patch.set_facecolor('#dc3545')
+                patch.set_facecolor('#dc3545')  # Red - low similarity
             elif bins[i] < 70:
-                patch.set_facecolor('#ffc107')
+                patch.set_facecolor('#ffc107')  # Yellow - medium similarity
             else:
-                patch.set_facecolor('#28a745')
+                patch.set_facecolor('#28a745')  # Green - high similarity
         
-        ax_hist.set_xlabel("Semantic Similarity with Question (%)", fontsize=11)
-        ax_hist.set_ylabel("Number of Sentences", fontsize=11)
-        ax_hist.set_xlim(0, 100)
-        ax_hist.grid(axis="y", alpha=0.2)
+        ax.set_xlabel("Similarity with Question (%)")
+        ax.set_ylabel("Number of Sentences")
+        ax.set_xlim(0, 100)
+        ax.grid(axis="y", alpha=0.2)
         
-        st.pyplot(fig_hist, use_container_width=True)
+        st.pyplot(fig, use_container_width=True)
         
-        # Quick interpretation
+        # Simple interpretation
         low_pct = np.mean(sims_pct < 40) * 100
         mid_pct = np.mean((sims_pct >= 40) & (sims_pct < 70)) * 100
         high_pct = np.mean(sims_pct >= 70) * 100
         
         st.markdown(f"""
         <div class="info-box">
-            <strong>📈 Distribution Insight:</strong><br>
-            • 🔴 <strong>Low similarity (&lt;40%)</strong>: {low_pct:.1f}% — potential hallucinations<br>
-            • 🟡 <strong>Medium similarity (40-70%)</strong>: {mid_pct:.1f}% — may need verification<br>
-            • 🟢 <strong>High similarity (&gt;70%)</strong>: {high_pct:.1f}% — likely accurate
+            <strong>📈 What this means:</strong><br>
+            • 🔴 <strong>Low similarity ({low_pct:.1f}%)</strong> — sentences that may be off-topic or hallucinated<br>
+            • 🟡 <strong>Medium similarity ({mid_pct:.1f}%)</strong> — sentences that are somewhat related but may need verification<br>
+            • 🟢 <strong>High similarity ({high_pct:.1f}%)</strong> — sentences that closely match your question
         </div>
         """, unsafe_allow_html=True)
 
