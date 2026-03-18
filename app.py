@@ -355,6 +355,7 @@ def verify_sentence_facts(sentence: str) -> FactCheckResult:
             confidence=0.0
         )
     
+    
     # Создаем поисковые запросы на основе сущностей и дат
     search_queries = []
     
@@ -945,7 +946,46 @@ def main():
                         st.write(f"**Source:** [{fact_result.wiki_match}]({fact_result.wiki_url})")
             
             st.divider()
+def get_fact_status_badge(status: str) -> Tuple[str, str]:
+    """Return badge class and emoji for fact status"""
+    badges = {
+        "confirmed": ("badge-confirmed", "✅"),
+        "questionable": ("badge-questionable", "⚠️"),
+        "debunked": ("badge-debunked", "❌"),
+        "no_data": ("badge-medium", "❓")
+    }
+    return badges.get(status, ("badge-medium", "❓"))
 
+def get_risk_level(risk_score: float) -> Tuple[str, str, str]:
+    """Return risk level, color, and emoji based on risk score"""
+    if risk_score < 30:
+        return "Low", "badge-low", "🟢"
+    elif risk_score < 60:
+        return "Medium", "badge-medium", "🟡"
+    else:
+        return "High", "badge-high", "🔴"
+
+def generate_analysis(sentence: str, similarity: float, risk_score: float, 
+                     fact_result: Optional[FactCheckResult] = None) -> str:
+    """Generate a one-sentence analysis based on semantic metrics and fact check"""
+    
+    semantic_part = ""
+    if risk_score < 30:
+        semantic_part = f"✅ Strongly aligned with question (similarity: {similarity:.2f})"
+    elif risk_score < 60:
+        semantic_part = f"⚡ Moderately relevant (similarity: {similarity:.2f})"
+    else:
+        semantic_part = f"⚠️ Low relevance to question (similarity: {similarity:.2f})"
+    
+    if fact_result and fact_result.has_factual_content:
+        if fact_result.verification_status == "confirmed":
+            return f"{semantic_part} | ✅ Fact-check: Confirmed in Wikipedia sources"
+        elif fact_result.verification_status == "questionable":
+            return f"{semantic_part} | ⚠️ Fact-check: Partially matches sources - verify details"
+        elif fact_result.verification_status == "no_data":
+            return f"{semantic_part} | ❓ Fact-check: No direct sources found for verification"
+    
+    return semantic_part
         # Simple similarity distribution
         st.markdown("## 📊 Response Coherence Overview")
         
