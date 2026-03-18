@@ -2,8 +2,9 @@ import io
 import os
 import re
 import requests
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 from dataclasses import dataclass
+import json
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -85,6 +86,21 @@ st.markdown("""
         color: #721c24;
     }
     
+    .badge-confirmed {
+        background: #d4edda;
+        color: #155724;
+    }
+    
+    .badge-questionable {
+        background: #fff3cd;
+        color: #856404;
+    }
+    
+    .badge-debunked {
+        background: #f8d7da;
+        color: #721c24;
+    }
+    
     /* Sentence card */
     .sentence-card {
         background: white;
@@ -142,6 +158,24 @@ st.markdown("""
         color: #555;
     }
     
+    .fact-check-box {
+        background: #e8f4fd;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-top: 1rem;
+        border-left: 3px solid #2196F3;
+    }
+    
+    .source-link {
+        color: #2196F3;
+        text-decoration: none;
+        font-weight: 500;
+    }
+    
+    .source-link:hover {
+        text-decoration: underline;
+    }
+    
     /* Stat cards */
     .stat-card {
         background: white;
@@ -168,11 +202,249 @@ st.markdown("""
 # ========== ENVIRONMENT VARIABLES ==========
 load_dotenv()
 
+# ========== CONSTANTS ==========
+WIKIPEDIA_API_URL = "https://ru.wikipedia.org/w/api.php"
+WIKIDATA_API_URL = "https://www.wikidata.org/w/api.php"
+
+# ========== CLASSES ==========
+@dataclass
+class FactCheckResult:
+    sentence: str
+    has_factual_content: bool
+    extracted_entities: List[str]
+    extracted_dates: List[str]
+    wiki_match: Optional[str]
+    wiki_snippet: Optional[str]
+    wiki_url: Optional[str]
+    verification_status: str  # "confirmed", "questionable", "debunked", "no_data"
+    confidence: float
+
 # ========== HELPER FUNCTIONS ==========
 @st.cache_resource
 def load_semantic_model():
     """Cache the model to save memory"""
     return get_model()
+
+def extract_entities_and_dates(text: str) -> Tuple[List[str], List[str]]:
+    """Extract potential entities (capitalized words) and dates from text"""
+    # Extract dates (years, full dates)
+    date_patterns = [
+        r'\b\d{4}\s*г\.?\b',  # 2024 г.
+        r'\b\d{1,2}\s+[а-яА-Я]+\s+\d{4}\b',  # 15 мая 2024
+        r'\b\d{1,2}\.\d{1,2}\.\d{4}\b',  # 15.05.2024
+        r'\b\d{4}\s+год\w*\b',  # 2024 год
+    ]
+    
+    dates = []
+    for pattern in date_patterns:
+        dates.extend(re.findall(pattern, text, re.IGNORECASE))
+    
+    # Extract potential entities (capitalized words/phrases)
+    # Look for sequences of capitalized words (potential names, places, events)
+    entities = re.findall(r'\b[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)*\b', text)
+    
+    # Filter out common words that might be capitalized at start of sentence
+    stop_words = {'Это', 'Он', 'Она', 'Они', 'Мы', 'Вы', 'Таким', 'Также', 'Кроме'}
+    entities = [e for e in entities if e not in stop_words and len(e) > 2]
+    
+    return entities, dates
+
+def search_wikipedia(query: str, lang: str = "ru") -> Optional[Dict[str, Any]]:
+    """Search Wikipedia for a given query"""
+    try:
+        # Search for pages
+        search_params = {
+            "action": "query",
+            "list": "search",
+            "srsearch": query,
+            "format": "json",
+            "utf8": 1,
+            "srlimit": 3
+        }
+        
+        response = requests.get(
+            f"https://{lang}.wikipedia.org/w/api.php",
+            params=search_params,
+            timeout=5
+        )
+        data = response.json()
+        
+        search_results = data.get("query", {}).get("search", [])
+        if not search_results:
+            return None
+        
+        # Get the first result
+        first_result = search_results[0]
+        page_title = first_result["title"]
+        page_id = first_result["pageid"]
+        
+        # Get page extract
+        extract_params = {
+            "action": "query",
+            "prop": "extracts",
+            "exintro": 1,
+            "explaintext": 1,
+            "pageids": page_id,
+            "format": "json",
+            "utf8": 1
+        }
+        
+        extract_response = requests.get(
+            f"https://{lang}.wikipedia.org/w/api.php",
+            params=extract_params,
+            timeout=5
+        )
+        extract_data = extract_response.json()
+        
+        pages = extract_data.get("query", {}).get("pages", {})
+        page_data = pages.get(str(page_id), {})
+        extract = page_data.get("extract", "")
+        
+        if extract:
+            # Take first 500 chars as snippet
+            snippet = extract[:500] + "..." if len(extract) > 500 else extract
+            
+            return {
+                "title": page_title,
+                "snippet": snippet,
+                "url": f"https://{lang}.wikipedia.org/wiki/{page_title.replace(' ', '_')}",
+                "pageid": page_id
+            }
+    
+    except Exception as e:
+        st.warning(f"Wikipedia search error for '{query}': {str(e)}")
+    
+    return None
+
+def search_wikidata_by_date(date: str) -> Optional[Dict[str, Any]]:
+    """Search Wikidata for events on a specific date"""
+    try:
+        # Clean up the date string
+        date_clean = re.sub(r'\s*г\.?\s*$', '', date).strip()
+        
+        # Try to find year
+        year_match = re.search(r'\b(\d{4})\b', date_clean)
+        if year_match:
+            year = year_match.group(1)
+            
+            # Search for events in that year
+            search_params = {
+                "action": "wbsearchentities",
+                "search": f"events in {year}",
+                "language": "ru",
+                "format": "json",
+                "limit": 3
+            }
+            
+            response = requests.get(WIKIDATA_API_URL, params=search_params, timeout=5)
+            data = response.json()
+            
+            if data.get("search"):
+                # Look for articles in Russian Wikipedia
+                for item in data["search"]:
+                    if "wikipedia" in item.get("url", ""):
+                        return {
+                            "title": item.get("label", f"События {year} года"),
+                            "snippet": f"Информация о событиях {year} года",
+                            "url": item.get("url", ""),
+                            "source": "wikidata"
+                        }
+    
+    except Exception as e:
+        st.warning(f"Wikidata search error for '{date}': {str(e)}")
+    
+    return None
+
+def verify_sentence_facts(sentence: str) -> FactCheckResult:
+    """Verify facts in a sentence using Wikipedia and Wikidata"""
+    
+    # Extract entities and dates
+    entities, dates = extract_entities_and_dates(sentence)
+    
+    # Combine all potential search terms
+    search_queries = []
+    
+    # Add full sentence for context (but shortened)
+    words = sentence.split()
+    if len(words) > 10:
+        search_queries.append(" ".join(words[:10]))
+    else:
+        search_queries.append(sentence)
+    
+    # Add entities
+    search_queries.extend(entities[:3])  # Limit to top 3 entities
+    
+    # Add dates with context
+    for date in dates[:2]:  # Limit to top 2 dates
+        # Try to find a relevant entity to pair with date
+        if entities:
+            search_queries.append(f"{entities[0]} {date}")
+        else:
+            search_queries.append(date)
+    
+    # Try each query until we find a match
+    best_match = None
+    best_confidence = 0.0
+    verification_status = "no_data"
+    
+    for query in search_queries:
+        if not query or len(query) < 3:
+            continue
+        
+        # Try Russian Wikipedia first
+        result = search_wikipedia(query, "ru")
+        if result:
+            # Simple confidence scoring based on query relevance
+            confidence = 0.7  # Base confidence
+            
+            # Boost confidence if query contains both entity and date
+            if any(d in query for d in dates) and any(e in query for e in entities):
+                confidence = 0.9
+            
+            best_match = result
+            best_confidence = confidence
+            
+            # Check if the sentence content appears in the snippet
+            sentence_keywords = set(re.findall(r'\b\w{4,}\b', sentence.lower()))
+            snippet_keywords = set(re.findall(r'\b\w{4,}\b', result["snippet"].lower()))
+            
+            common_keywords = sentence_keywords & snippet_keywords
+            if len(common_keywords) >= 3:
+                verification_status = "confirmed"
+            else:
+                verification_status = "questionable"
+            
+            break
+        
+        # If no Russian result, try English
+        result = search_wikipedia(query, "en")
+        if result:
+            best_match = result
+            best_confidence = 0.6
+            verification_status = "questionable"
+            break
+    
+    # If still no match but we have dates, try Wikidata
+    if not best_match and dates:
+        for date in dates[:1]:
+            result = search_wikidata_by_date(date)
+            if result:
+                best_match = result
+                best_confidence = 0.5
+                verification_status = "questionable"
+                break
+    
+    return FactCheckResult(
+        sentence=sentence,
+        has_factual_content=len(entities) > 0 or len(dates) > 0,
+        extracted_entities=entities,
+        extracted_dates=dates,
+        wiki_match=best_match["title"] if best_match else None,
+        wiki_snippet=best_match["snippet"] if best_match else None,
+        wiki_url=best_match["url"] if best_match else None,
+        verification_status=verification_status,
+        confidence=best_confidence
+    )
 
 def get_risk_level(risk_score: float) -> Tuple[str, str, str]:
     """Return risk level, color, and emoji based on risk score"""
@@ -183,14 +455,37 @@ def get_risk_level(risk_score: float) -> Tuple[str, str, str]:
     else:
         return "High", "badge-high", "🔴"
 
-def generate_analysis(sentence: str, similarity: float, risk_score: float) -> str:
-    """Generate a one-sentence analysis based on semantic metrics"""
+def get_fact_status_badge(status: str) -> Tuple[str, str]:
+    """Return badge class and emoji for fact status"""
+    badges = {
+        "confirmed": ("badge-confirmed", "✅"),
+        "questionable": ("badge-questionable", "⚠️"),
+        "debunked": ("badge-debunked", "❌"),
+        "no_data": ("badge-medium", "❓")
+    }
+    return badges.get(status, ("badge-medium", "❓"))
+
+def generate_analysis(sentence: str, similarity: float, risk_score: float, 
+                     fact_result: Optional[FactCheckResult] = None) -> str:
+    """Generate a one-sentence analysis based on semantic metrics and fact check"""
+    
+    semantic_part = ""
     if risk_score < 30:
-        return f"✅ Strongly aligned with your question (similarity: {similarity:.2f}) - low hallucination risk"
+        semantic_part = f"✅ Strongly aligned with question (similarity: {similarity:.2f})"
     elif risk_score < 60:
-        return f"⚡ Moderately relevant but may need verification (similarity: {similarity:.2f})"
+        semantic_part = f"⚡ Moderately relevant (similarity: {similarity:.2f})"
     else:
-        return f"⚠️ Low relevance to your question (similarity: {similarity:.2f}) - potential hallucination"
+        semantic_part = f"⚠️ Low relevance to question (similarity: {similarity:.2f})"
+    
+    if fact_result and fact_result.has_factual_content:
+        if fact_result.verification_status == "confirmed":
+            return f"{semantic_part} | ✅ Fact-check: Confirmed in Wikipedia sources"
+        elif fact_result.verification_status == "questionable":
+            return f"{semantic_part} | ⚠️ Fact-check: Partially matches sources - verify details"
+        elif fact_result.verification_status == "no_data":
+            return f"{semantic_part} | ❓ Fact-check: No direct sources found for verification"
+    
+    return semantic_part
 
 def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     sims = np.array([s.similarity for s in sentence_scores], dtype=float)
@@ -201,7 +496,7 @@ def _compute_histogram_data(sentence_scores: List[SentenceScore]):
 def main():
     # Custom title
     st.markdown('<h1 class="main-title">🔍 LLM Hallucination Checker</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="subtitle">Advanced AI response validation with semantic analysis</p>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Advanced AI response validation with semantic analysis and smart fact-checking</p>', unsafe_allow_html=True)
     
     # Welcome card
     with st.container():
@@ -209,8 +504,9 @@ def main():
         <div class="card">
             <h3 style="color: white; margin-top: 0;">🎯 How it works</h3>
             <p style="color: rgba(255,255,255,0.9); margin-bottom: 0;">
-                Our engine analyzes LLM responses using semantic coherence:<br>
-                <strong>Semantic analysis</strong> — measures how well each sentence relates to your question to identify potential hallucinations
+                Our engine analyzes LLM responses using two complementary methods:<br>
+                <strong>1. Semantic analysis</strong> — measures relevance to your question<br>
+                <strong>2. Smart fact-checking</strong> — automatically detects entities (people, places, events) and dates, then verifies them against Wikipedia
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -248,13 +544,22 @@ def main():
         
         with st.spinner("Performing semantic analysis..."):
             try:
-                progress_bar.progress(50, text="Analyzing semantic coherence...")
+                progress_bar.progress(30, text="Analyzing semantic coherence...")
                 result = analyze_semantic_consistency(question, answer)
-                progress_bar.progress(100, text="Analysis complete!")
             except Exception as e:
                 st.error(f"❌ Semantic analysis failed: {str(e)}")
                 return
         
+        # Fact-check sentences with factual content
+        progress_bar.progress(60, text="Fact-checking claims against Wikipedia...")
+        fact_results = {}
+        
+        for sentence_score in result.sentence_scores:
+            fact_result = verify_sentence_facts(sentence_score.sentence)
+            if fact_result.has_factual_content:
+                fact_results[sentence_score.sentence] = fact_result
+        
+        progress_bar.progress(100, text="Analysis complete!")
         progress_bar.empty()
 
         # Results header
@@ -299,7 +604,7 @@ def main():
         with col_stats:
             st.markdown("### 📈 Quick Stats")
             
-            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
             with col_stat1:
                 st.markdown(f"""
                 <div class="stat-card">
@@ -325,6 +630,15 @@ def main():
                     <div class="stat-label">High Risk</div>
                 </div>
                 """, unsafe_allow_html=True)
+            
+            with col_stat4:
+                verified = sum(1 for fr in fact_results.values() if fr.verification_status == "confirmed")
+                st.markdown(f"""
+                <div class="stat-card">
+                    <div class="stat-number">{verified}</div>
+                    <div class="stat-label">Verified Facts</div>
+                </div>
+                """, unsafe_allow_html=True)
 
         st.markdown('<hr style="margin: 2rem 0; opacity: 0.2;">', unsafe_allow_html=True)
 
@@ -333,13 +647,44 @@ def main():
         
         for idx, sentence_score in enumerate(result.sentence_scores, 1):
             risk_level, badge_class, emoji = get_risk_level(sentence_score.risk)
+            fact_result = fact_results.get(sentence_score.sentence)
             analysis = generate_analysis(
                 sentence_score.sentence, 
                 sentence_score.similarity, 
-                sentence_score.risk
+                sentence_score.risk,
+                fact_result
             )
             
             # Create a styled card for each sentence
+            fact_html = ""
+            if fact_result and fact_result.has_factual_content:
+                fact_badge_class, fact_emoji = get_fact_status_badge(fact_result.verification_status)
+                
+                # Format extracted info
+                extracted_info = []
+                if fact_result.extracted_entities:
+                    extracted_info.append(f"👤 {', '.join(fact_result.extracted_entities[:3])}")
+                if fact_result.extracted_dates:
+                    extracted_info.append(f"📅 {', '.join(fact_result.extracted_dates[:2])}")
+                
+                extracted_html = f"<div style='font-size:0.9rem; color:#666; margin-top:0.5rem;'>{' | '.join(extracted_info)}</div>" if extracted_info else ""
+                
+                # Source link if available
+                source_html = ""
+                if fact_result.wiki_url:
+                    source_html = f"<div style='margin-top:0.5rem;'><a href='{fact_result.wiki_url}' target='_blank' class='source-link'>📚 Wikipedia: {fact_result.wiki_match}</a></div>"
+                
+                fact_html = f"""
+                <div class="fact-check-box">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span class="status-badge {fact_badge_class}">{fact_emoji} Fact: {fact_result.verification_status}</span>
+                        <span style="font-size:0.8rem; color:#666;">confidence: {fact_result.confidence:.0%}</span>
+                    </div>
+                    {extracted_html}
+                    {source_html}
+                </div>
+                """
+            
             st.markdown(f"""
             <div class="sentence-card">
                 <div class="sentence-text">
@@ -364,6 +709,7 @@ def main():
                 <div class="analysis-text">
                     {analysis}
                 </div>
+                {fact_html}
             </div>
             """, unsafe_allow_html=True)
 
@@ -423,7 +769,7 @@ def main():
                 <li><span style="color: #28a745; font-weight: bold;">🟢 High similarity ({high_pct:.1f}%)</span> — sentences that closely match your question</li>
             </ul>
             <p style="margin-top: 1rem; margin-bottom: 0; font-style: italic; color: #555;">
-                <strong>Note:</strong> Higher similarity indicates better alignment with your question and lower hallucination risk.
+                <strong>Note:</strong> Blue fact-check boxes show automatic verification of names, dates, and events against Wikipedia.
             </p>
         </div>
         """, unsafe_allow_html=True)
