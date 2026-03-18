@@ -757,6 +757,10 @@ def search_wikidata_by_date(date: str) -> Optional[Dict[str, Any]]:
     
     return None
 
+def _compute_histogram_data(sentence_scores: List[SentenceScore]):
+    sims = np.array([s.similarity for s in sentence_scores], dtype=float)
+    sims_pct = sims * 100.0
+    return sims_pct
 
 # ========== MAIN APPLICATION ==========
 def main():
