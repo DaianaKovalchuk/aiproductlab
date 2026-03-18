@@ -725,6 +725,7 @@ def _compute_histogram_data(sentence_scores: List[SentenceScore]):
     return sims_pct
 
 # ========== MAIN APPLICATION ==========
+# ========== MAIN APPLICATION ==========
 def main():
     # Custom title
     st.markdown('<h1 class="main-title">🔍 LLM Hallucination Checker</h1>', unsafe_allow_html=True)
@@ -874,10 +875,10 @@ def main():
 
         st.markdown('<hr style="margin: 2rem 0; opacity: 0.2;">', unsafe_allow_html=True)
 
-        # Detailed sentence analysis
-        st.markdown("## 📝 Sentence-by-Sentence Analysis")
+        # Detailed sentence analysis - БЕЗ НОМЕРАЦИИ И С ПРОСТЫМ ВЫВОДОМ
+        st.markdown("## 📝 Sentence Analysis")
         
-        for idx, sentence_score in enumerate(result.sentence_scores, 1):
+        for sentence_score in result.sentence_scores:
             risk_level, badge_class, emoji = get_risk_level(sentence_score.risk)
             fact_result = fact_results.get(sentence_score.sentence)
             analysis = generate_analysis(
@@ -887,64 +888,31 @@ def main():
                 fact_result
             )
             
-            # Create a styled card for each sentence
-            fact_html = ""
+            # Простой вывод без сложного HTML
+            st.markdown(f"**{sentence_score.sentence}**")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Risk Level", f"{emoji} {risk_level}")
+            with col2:
+                st.metric("Risk Score", f"{sentence_score.risk:.1f}%")
+            with col3:
+                st.metric("Similarity", f"{sentence_score.similarity:.2f}")
+            
+            st.info(analysis)
+            
             if fact_result and fact_result.has_factual_content:
-                fact_badge_class, fact_emoji = get_fact_status_badge(fact_result.verification_status)
-                
-                # Format extracted info
-                extracted_info = []
-                if fact_result.extracted_entities:
-                    extracted_info.append(f"📌 {', '.join(fact_result.extracted_entities[:3])}")
-                if fact_result.extracted_dates:
-                    extracted_info.append(f"📅 {', '.join(fact_result.extracted_dates[:2])}")
-                
-                extracted_html = f"<div style='font-size:0.9rem; color:#666; margin-top:0.5rem;'>{' | '.join(extracted_info)}</div>" if extracted_info else ""
-                
-                # Source link if available
-                source_html = ""
-                if fact_result.wiki_url:
-                    source_html = f"<div style='margin-top:0.5rem;'><a href='{fact_result.wiki_url}' target='_blank' class='source-link'>📚 Wikipedia: {fact_result.wiki_match}</a></div>"
-                
-                fact_html = f"""
-                <div class="fact-check-box">
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-                        <span class="status-badge {fact_badge_class}">{fact_emoji} Fact: {fact_result.verification_status}</span>
-                        <span style="font-size:0.8rem; color:#666;">confidence: {fact_result.confidence:.0%}</span>
-                    </div>
-                    {extracted_html}
-                    {source_html}
-                </div>
-                """
-            st.markdown(f"""
-            <div class="sentence-card">
-                <div class="sentence-text">
-                    <strong>{idx}.</strong> {sentence_score.sentence}
-                </div>
-                <div class="metric-row">
-                    <div class="metric-item">
-                        <div class="metric-label">Risk Level</div>
-                        <div class="metric-value">
-                            <span class="status-badge {badge_class}">{emoji} {risk_level}</span>
-                        </div>
-                    </div>
-                    <div class="metric-item">
-                        <div class="metric-label">Risk Score</div>
-                        <div class="metric-value">{sentence_score.risk:.1f}%</div>
-                    </div>
-                    <div class="metric-item">
-                        <div class="metric-label">Similarity</div>
-                        <div class="metric-value">{sentence_score.similarity:.2f}</div>
-                    </div>
-                </div>
-                <div class="analysis-text">
-                    {analysis}
-                </div>
-                {fact_html}
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown('<hr style="margin: 2rem 0; opacity: 0.2;">', unsafe_allow_html=True)
+                with st.expander("🔍 Fact Check Details"):
+                    st.write(f"**Status:** {fact_result.verification_status}")
+                    st.write(f"**Confidence:** {fact_result.confidence:.0%}")
+                    if fact_result.extracted_entities:
+                        st.write(f"**Entities:** {', '.join(fact_result.extracted_entities[:3])}")
+                    if fact_result.extracted_dates:
+                        st.write(f"**Dates:** {', '.join(fact_result.extracted_dates[:2])}")
+                    if fact_result.wiki_url:
+                        st.write(f"**Source:** [{fact_result.wiki_match}]({fact_result.wiki_url})")
+            
+            st.divider()
 
         # Simple similarity distribution
         st.markdown("## 📊 Response Coherence Overview")
