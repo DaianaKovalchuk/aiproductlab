@@ -250,7 +250,7 @@ def extract_entities_and_dates(text: str) -> Tuple[List[str], List[str]]:
     return entities, dates
 
 def search_wikipedia(query: str, lang: str = "ru") -> Optional[Dict[str, Any]]:
-    """Search Wikipedia for a given query"""
+    """Search Wikipedia for a given query with better error handling"""
     try:
         # Search for pages
         search_params = {
@@ -262,12 +262,29 @@ def search_wikipedia(query: str, lang: str = "ru") -> Optional[Dict[str, Any]]:
             "srlimit": 3
         }
         
+        # Добавляем User-Agent (требуется Wikipedia)
+        headers = {
+            'User-Agent': 'LLMHallucinationChecker/1.0 (https://your-app-url.com)'
+        }
+        
         response = requests.get(
             f"https://{lang}.wikipedia.org/w/api.php",
             params=search_params,
+            headers=headers,
             timeout=5
         )
-        data = response.json()
+        
+        # Проверяем, что ответ успешный
+        if response.status_code != 200:
+            st.warning(f"Wikipedia returned status code {response.status_code} for query '{query}'")
+            return None
+            
+        # Проверяем, что ответ - валидный JSON
+        try:
+            data = response.json()
+        except ValueError as e:
+            st.warning(f"Invalid JSON response from Wikipedia for query '{query}': {str(e)}")
+            return None
         
         search_results = data.get("query", {}).get("search", [])
         if not search_results:
@@ -292,9 +309,17 @@ def search_wikipedia(query: str, lang: str = "ru") -> Optional[Dict[str, Any]]:
         extract_response = requests.get(
             f"https://{lang}.wikipedia.org/w/api.php",
             params=extract_params,
+            headers=headers,
             timeout=5
         )
-        extract_data = extract_response.json()
+        
+        if extract_response.status_code != 200:
+            return None
+            
+        try:
+            extract_data = extract_response.json()
+        except ValueError:
+            return None
         
         pages = extract_data.get("query", {}).get("pages", {})
         page_data = pages.get(str(page_id), {})
@@ -311,6 +336,10 @@ def search_wikipedia(query: str, lang: str = "ru") -> Optional[Dict[str, Any]]:
                 "pageid": page_id
             }
     
+    except requests.exceptions.Timeout:
+        st.warning(f"Wikipedia timeout for query '{query}'")
+    except requests.exceptions.ConnectionError:
+        st.warning(f"Wikipedia connection error for query '{query}'")
     except Exception as e:
         st.warning(f"Wikipedia search error for '{query}': {str(e)}")
     
@@ -361,21 +390,35 @@ def verify_sentence_facts(sentence: str) -> FactCheckResult:
     # Extract entities and dates
     entities, dates = extract_entities_and_dates(sentence)
     
+    # Не проверяем слишком короткие предложения
+    if len(sentence) < 10:
+        return FactCheckResult(
+            sentence=sentence,
+            has_factual_content=False,
+            extracted_entities=entities,
+            extracted_dates=dates,
+            wiki_match=None,
+            wiki_snippet=None,
+            wiki_url=None,
+            verification_status="no_data",
+            confidence=0.0
+        )
+    
     # Combine all potential search terms
     search_queries = []
     
     # Add full sentence for context (but shortened)
     words = sentence.split()
-    if len(words) > 10:
-        search_queries.append(" ".join(words[:10]))
+    if len(words) > 8:  # Уменьшили с 10 до 8
+        search_queries.append(" ".join(words[:8]))
     else:
         search_queries.append(sentence)
     
     # Add entities
-    search_queries.extend(entities[:3])  # Limit to top 3 entities
+    search_queries.extend(entities[:2])  # Уменьшили с 3 до 2
     
     # Add dates with context
-    for date in dates[:2]:  # Limit to top 2 dates
+    for date in dates[:1]:  # Уменьшили с 2 до 1
         # Try to find a relevant entity to pair with date
         if entities:
             search_queries.append(f"{entities[0]} {date}")
@@ -387,9 +430,14 @@ def verify_sentence_facts(sentence: str) -> FactCheckResult:
     best_confidence = 0.0
     verification_status = "no_data"
     
-    for query in search_queries:
+    # Ограничиваем количество попыток
+    for query in search_queries[:3]:  # Только первые 3 запроса
         if not query or len(query) < 3:
             continue
+        
+        # Не отправляем слишком длинные запросы
+        if len(query) > 100:
+            query = query[:100]
         
         # Try Russian Wikipedia first
         result = search_wikipedia(query, "ru")
@@ -423,16 +471,10 @@ def verify_sentence_facts(sentence: str) -> FactCheckResult:
             best_confidence = 0.6
             verification_status = "questionable"
             break
-    
-    # If still no match but we have dates, try Wikidata
-    if not best_match and dates:
-        for date in dates[:1]:
-            result = search_wikidata_by_date(date)
-            if result:
-                best_match = result
-                best_confidence = 0.5
-                verification_status = "questionable"
-                break
+        
+        # Небольшая задержка между запросами
+        import time
+        time.sleep(0.5)
     
     return FactCheckResult(
         sentence=sentence,
