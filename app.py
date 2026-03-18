@@ -397,18 +397,134 @@ def evaluate_relevance(sentence: str, title: str, snippet: str) -> float:
     return total / max_possible if max_possible > 0 else 0.0
 
 def search_wikipedia(query: str, lang: str = "ru") -> Optional[Dict[str, Any]]:
-    """Search Wikipedia for a given query with improved relevance"""
-    try:
-        headers = {
-            'User-Agent': 'LLMHallucinationChecker/1.0 (https://hallucheck.streamlit.app)'
-        }
-        
-        # Специальная обработка для известных исторических событий
-        if "Крещение Руси" in query or "988" in query or ("крещение" in query.lower() and "руси" in query.lower()):
-            # Прямой запрос к статье о Крещении Руси
+    """Search Wikipedia for a given query with improved relevance and retry logic"""
+    
+    # Увеличиваем таймаут и добавляем повторные попытки
+    timeout = 10  # Увеличили с 5 до 10 секунд
+    max_retries = 2
+    
+    headers = {
+        'User-Agent': 'LLMHallucinationChecker/1.0 (https://hallucheck.streamlit.app)'
+    }
+    
+    for attempt in range(max_retries + 1):
+        try:
+            # Специальная обработка для известных исторических событий
+            if "Крещение Руси" in query or "988" in query or ("крещение" in query.lower() and "руси" in query.lower()):
+                # Прямой запрос к статье о Крещении Руси
+                extract_params = {
+                    "action": "query",
+                    "titles": "Крещение Руси",
+                    "prop": "extracts",
+                    "exintro": 1,
+                    "explaintext": 1,
+                    "format": "json",
+                    "utf8": 1
+                }
+                
+                response = requests.get(
+                    f"https://{lang}.wikipedia.org/w/api.php",
+                    params=extract_params,
+                    headers=headers,
+                    timeout=timeout
+                )
+                
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        pages = data.get("query", {}).get("pages", {})
+                        for page_id, page in pages.items():
+                            if page_id != "-1" and page.get("extract"):
+                                return {
+                                    "title": "Крещение Руси",
+                                    "snippet": page["extract"][:500] + "...",
+                                    "url": f"https://{lang}.wikipedia.org/wiki/Крещение_Руси",
+                                    "pageid": page_id
+                                }
+                    except:
+                        pass
+            
+            # Стандартный поиск
+            search_params = {
+                "action": "query",
+                "list": "search",
+                "srsearch": query,
+                "format": "json",
+                "utf8": 1,
+                "srlimit": 5
+            }
+            
+            response = requests.get(
+                f"https://{lang}.wikipedia.org/w/api.php",
+                params=search_params,
+                headers=headers,
+                timeout=timeout
+            )
+            
+            if response.status_code != 200:
+                if attempt < max_retries:
+                    time.sleep(1)  # Ждем секунду перед повторной попыткой
+                    continue
+                return None
+                
+            try:
+                data = response.json()
+            except ValueError:
+                if attempt < max_retries:
+                    time.sleep(1)
+                    continue
+                return None
+            
+            search_results = data.get("query", {}).get("search", [])
+            if not search_results:
+                if attempt < max_retries:
+                    time.sleep(1)
+                    continue
+                return None
+            
+            # Оцениваем релевантность результатов
+            best_result = None
+            best_relevance = 0
+            
+            for result in search_results:
+                title = result["title"]
+                snippet = result.get("snippet", "")
+                
+                # Очищаем сниппет от HTML тегов
+                snippet = re.sub(r'<[^>]+>', '', snippet)
+                
+                # Оцениваем релевантность
+                relevance = 0
+                
+                # Проверяем точное совпадение запроса в заголовке
+                if query.lower() in title.lower():
+                    relevance += 3
+                
+                # Проверяем отдельные слова запроса в заголовке
+                query_words = set(query.lower().split())
+                title_words = set(title.lower().split())
+                common_words = query_words & title_words
+                relevance += len(common_words) * 2
+                
+                # Проверяем наличие слов запроса в сниппете
+                for word in query_words:
+                    if len(word) > 3 and word in snippet.lower():
+                        relevance += 1
+                
+                if relevance > best_relevance:
+                    best_relevance = relevance
+                    best_result = result
+            
+            if not best_result or best_relevance < 2:  # Минимальный порог релевантности
+                if attempt < max_retries:
+                    time.sleep(1)
+                    continue
+                return None
+            
+            # Получаем полный текст статьи
             extract_params = {
                 "action": "query",
-                "titles": "Крещение Руси",
+                "pageids": best_result["pageid"],
                 "prop": "extracts",
                 "exintro": 1,
                 "explaintext": 1,
@@ -416,136 +532,60 @@ def search_wikipedia(query: str, lang: str = "ru") -> Optional[Dict[str, Any]]:
                 "utf8": 1
             }
             
-            response = requests.get(
+            extract_response = requests.get(
                 f"https://{lang}.wikipedia.org/w/api.php",
                 params=extract_params,
                 headers=headers,
-                timeout=5
+                timeout=timeout
             )
             
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    pages = data.get("query", {}).get("pages", {})
-                    for page_id, page in pages.items():
-                        if page_id != "-1" and page.get("extract"):
-                            return {
-                                "title": "Крещение Руси",
-                                "snippet": page["extract"][:500] + "...",
-                                "url": f"https://{lang}.wikipedia.org/wiki/Крещение_Руси",
-                                "pageid": page_id
-                            }
-                except:
-                    pass
-        
-        # Стандартный поиск
-        search_params = {
-            "action": "query",
-            "list": "search",
-            "srsearch": query,
-            "format": "json",
-            "utf8": 1,
-            "srlimit": 5
-        }
-        
-        response = requests.get(
-            f"https://{lang}.wikipedia.org/w/api.php",
-            params=search_params,
-            headers=headers,
-            timeout=5
-        )
-        
-        if response.status_code != 200:
-            return None
+            if extract_response.status_code != 200:
+                if attempt < max_retries:
+                    time.sleep(1)
+                    continue
+                return None
+                
+            try:
+                extract_data = extract_response.json()
+            except ValueError:
+                if attempt < max_retries:
+                    time.sleep(1)
+                    continue
+                return None
             
-        try:
-            data = response.json()
-        except ValueError:
-            return None
-        
-        search_results = data.get("query", {}).get("search", [])
-        if not search_results:
-            return None
-        
-        # Оцениваем релевантность результатов
-        best_result = None
-        best_relevance = 0
-        best_result_data = None
-        
-        for result in search_results:
-            title = result["title"]
-            snippet = result.get("snippet", "")
+            pages = extract_data.get("query", {}).get("pages", {})
+            page_data = pages.get(str(best_result["pageid"]), {})
+            extract = page_data.get("extract", "")
             
-            # Очищаем сниппет от HTML тегов
-            snippet = re.sub(r'<[^>]+>', '', snippet)
+            if extract:
+                snippet = extract[:500] + "..." if len(extract) > 500 else extract
+                return {
+                    "title": best_result["title"],
+                    "snippet": snippet,
+                    "url": f"https://{lang}.wikipedia.org/wiki/{best_result['title'].replace(' ', '_')}",
+                    "pageid": best_result["pageid"]
+                }
             
-            # Оцениваем релевантность
-            relevance = 0
-            
-            # Проверяем точное совпадение запроса в заголовке
-            if query.lower() in title.lower():
-                relevance += 3
-            
-            # Проверяем отдельные слова запроса в заголовке
-            query_words = set(query.lower().split())
-            title_words = set(title.lower().split())
-            common_words = query_words & title_words
-            relevance += len(common_words) * 2
-            
-            # Проверяем наличие слов запроса в сниппете
-            for word in query_words:
-                if len(word) > 3 and word in snippet.lower():
-                    relevance += 1
-            
-            if relevance > best_relevance:
-                best_relevance = relevance
-                best_result = result
-                best_result_data = (title, snippet)
-        
-        if not best_result or best_relevance < 2:  # Минимальный порог релевантности
-            return None
-        
-        # Получаем полный текст статьи
-        extract_params = {
-            "action": "query",
-            "pageids": best_result["pageid"],
-            "prop": "extracts",
-            "exintro": 1,
-            "explaintext": 1,
-            "format": "json",
-            "utf8": 1
-        }
-        
-        extract_response = requests.get(
-            f"https://{lang}.wikipedia.org/w/api.php",
-            params=extract_params,
-            headers=headers,
-            timeout=5
-        )
-        
-        if extract_response.status_code != 200:
-            return None
-            
-        try:
-            extract_data = extract_response.json()
-        except ValueError:
-            return None
-        
-        pages = extract_data.get("query", {}).get("pages", {})
-        page_data = pages.get(str(best_result["pageid"]), {})
-        extract = page_data.get("extract", "")
-        
-        if extract:
-            snippet = extract[:500] + "..." if len(extract) > 500 else extract
-            return {
-                "title": best_result["title"],
-                "snippet": snippet,
-                "url": f"https://{lang}.wikipedia.org/wiki/{best_result['title'].replace(' ', '_')}",
-                "pageid": best_result["pageid"]
-            }
-    
-    except Exception as e:
-        st.warning(f"Wikipedia search error for '{query}': {str(e)}")
+            # Если дошли сюда - что-то пошло не так
+            if attempt < max_retries:
+                time.sleep(1)
+                continue
+                
+        except requests.exceptions.Timeout:
+            st.warning(f"Wikipedia timeout for query '{query}' (attempt {attempt + 1}/{max_retries + 1})")
+            if attempt < max_retries:
+                time.sleep(2)  # Ждем дольше перед повторной попыткой при таймауте
+                continue
+        except requests.exceptions.ConnectionError:
+            st.warning(f"Wikipedia connection error for query '{query}' (attempt {attempt + 1}/{max_retries + 1})")
+            if attempt < max_retries:
+                time.sleep(2)
+                continue
+        except Exception as e:
+            st.warning(f"Wikipedia search error for '{query}': {str(e)}")
+            if attempt < max_retries:
+                time.sleep(1)
+                continue
     
     return None
 
