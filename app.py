@@ -267,9 +267,8 @@ def fact_check_sentence(sentence: str) -> FactCheckResult:
     return FactCheckResult(sentence, status, sim_score, title, snippet, url, explanation)
 
 # ========== MAIN APP ==========
+# ========== MAIN APP ==========
 def main():
-    st.set_page_config(page_title="LLM Hallucination Checker", page_icon="🔍", layout="centered")
-    
     # Title (YOUR DESIGN)
     st.markdown('<h1 class="main-title">🔍 LLM Hallucination Checker</h1>', unsafe_allow_html=True)
     st.markdown('<p class="subtitle">Sentence-by-sentence analysis with source verification</p>', unsafe_allow_html=True)
