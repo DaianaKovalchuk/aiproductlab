@@ -257,15 +257,29 @@ def get_model_with_fallback():
     return None
 
 # ========== SEMANTIC ANALYSIS FUNCTIONS ==========
+def clean_sentence(text: str) -> str:
+    """Очищает предложение от маркеров списка и лишних пробелов"""
+    # Убираем маркеры списка в начале (1., 2., 3., и т.д.)
+    text = re.sub(r'^\s*\d+\.\s*', '', text)
+    # Убираем табуляцию и лишние пробелы
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
 def analyze_semantic_consistency(question: str, answer: str) -> AnalysisResult:
     """Analyze semantic consistency between question and answer sentences"""
     model = get_model_with_fallback()
     if model is None:
         raise Exception("Failed to load semantic model")
     
-    # Split answer into sentences
-    sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s', answer)
-    sentences = [s.strip() for s in sentences if s.strip()]
+    # Разбиваем на предложения
+    raw_sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s', answer)
+    
+    # Очищаем каждое предложение от маркеров списка
+    sentences = []
+    for s in raw_sentences:
+        cleaned = clean_sentence(s)
+        if cleaned:  # Добавляем только непустые предложения
+            sentences.append(cleaned)
     
     if not sentences:
         return AnalysisResult(
@@ -298,6 +312,106 @@ def analyze_semantic_consistency(question: str, answer: str) -> AnalysisResult:
         sentence_scores=sentence_scores,
         overall_risk=overall_risk,
         metadata={"num_sentences": len(sentences)}
+    )
+
+def verify_sentence_facts(sentence: str) -> FactCheckResult:
+    """Verify facts in a sentence using Wikipedia and Wikidata"""
+    
+    # Сначала очищаем предложение от маркеров списка
+    cleaned_sentence = clean_sentence(sentence)
+    
+    # Extract entities and dates from cleaned sentence
+    entities, dates = extract_entities_and_dates(cleaned_sentence)
+    
+    # Не проверяем слишком короткие предложения или предложения без сущностей
+    if len(cleaned_sentence) < 15 or (len(entities) == 0 and len(dates) == 0):
+        return FactCheckResult(
+            sentence=sentence,  # Сохраняем оригинальное предложение для отображения
+            has_factual_content=False,
+            extracted_entities=entities,
+            extracted_dates=dates,
+            wiki_match=None,
+            wiki_snippet=None,
+            wiki_url=None,
+            verification_status="no_data",
+            confidence=0.0
+        )
+    
+    # Создаем поисковые запросы на основе сущностей и дат
+    search_queries = []
+    
+    # Сначала пробуем комбинации сущностей с датами
+    if entities and dates:
+        for entity in entities[:2]:
+            for date in dates[:1]:
+                # Очищаем дату от лишних символов
+                clean_date = re.sub(r'[^\d\s]', '', date)
+                search_queries.append(f"{entity} {clean_date}")
+    
+    # Затем отдельные сущности
+    search_queries.extend(entities[:3])
+    
+    # Затем даты с контекстом
+    for date in dates[:1]:
+        clean_date = re.sub(r'[^\d\s]', '', date)
+        search_queries.append(f"события {clean_date}")
+        search_queries.append(clean_date)
+    
+    # Пробуем каждый запрос
+    best_match = None
+    best_confidence = 0.0
+    best_relevance = 0.0
+    verification_status = "no_data"
+    
+    for query in search_queries[:4]:
+        if not query or len(query) < 3:
+            continue
+        
+        if len(query) > 100:
+            query = query[:100]
+        
+        # Пробуем русскую Википедию
+        result = search_wikipedia(query, "ru")
+        if result:
+            # Оцениваем релевантность
+            relevance = evaluate_relevance(cleaned_sentence, result["title"], result["snippet"])
+            
+            if relevance > best_relevance:
+                best_relevance = relevance
+                best_match = result
+                
+                # Рассчитываем confidence на основе релевантности
+                confidence = 0.5 + relevance * 0.4
+                best_confidence = min(confidence, 0.95)
+                
+                # Проверяем ключевые слова для определения статуса
+                sentence_keywords = set(re.findall(r'\b\w{4,}\b', cleaned_sentence.lower()))
+                title_keywords = set(re.findall(r'\b\w{4,}\b', result["title"].lower()))
+                snippet_keywords = set(re.findall(r'\b\w{4,}\b', result["snippet"].lower()))
+                
+                all_source_keywords = title_keywords | snippet_keywords
+                common_keywords = sentence_keywords & all_source_keywords
+                
+                if len(common_keywords) >= 4 or relevance > 0.8:
+                    verification_status = "confirmed"
+                elif len(common_keywords) >= 2 or relevance > 0.5:
+                    verification_status = "questionable"
+                else:
+                    verification_status = "no_data"
+        
+        # Небольшая задержка между запросами
+        time.sleep(0.3)
+    
+    return FactCheckResult(
+        sentence=sentence,  # Сохраняем оригинальное предложение для отображения
+        has_factual_content=len(entities) > 0 or len(dates) > 0,
+        extracted_entities=entities,
+        extracted_dates=dates,
+        wiki_match=best_match["title"] if best_match else None,
+        wiki_snippet=best_match["snippet"] if best_match else None,
+        wiki_url=best_match["url"] if best_match else None,
+        verification_status=verification_status,
+        confidence=best_confidence
     )
 
 # ========== HELPER FUNCTIONS ==========
@@ -624,147 +738,7 @@ def search_wikidata_by_date(date: str) -> Optional[Dict[str, Any]]:
     
     return None
 
-def verify_sentence_facts(sentence: str) -> FactCheckResult:
-    """Verify facts in a sentence using Wikipedia and Wikidata"""
-    
-    # Extract entities and dates
-    entities, dates = extract_entities_and_dates(sentence)
-    
-    # Не проверяем слишком короткие предложения или предложения без сущностей
-    if len(sentence) < 15 or (len(entities) == 0 and len(dates) == 0):
-        return FactCheckResult(
-            sentence=sentence,
-            has_factual_content=False,
-            extracted_entities=entities,
-            extracted_dates=dates,
-            wiki_match=None,
-            wiki_snippet=None,
-            wiki_url=None,
-            verification_status="no_data",
-            confidence=0.0
-        )
-    
-    # Создаем поисковые запросы на основе сущностей и дат
-    search_queries = []
-    
-    # Сначала пробуем комбинации сущностей с датами
-    if entities and dates:
-        for entity in entities[:2]:
-            for date in dates[:1]:
-                search_queries.append(f"{entity} {date}")
-    
-    # Затем отдельные сущности
-    search_queries.extend(entities[:3])
-    
-    # Затем даты с контекстом
-    for date in dates[:1]:
-        search_queries.append(f"события {date}")
-        search_queries.append(date)
-    
-    # Пробуем каждый запрос
-    best_match = None
-    best_confidence = 0.0
-    best_relevance = 0.0
-    verification_status = "no_data"
-    
-    for query in search_queries[:4]:
-        if not query or len(query) < 3:
-            continue
-        
-        if len(query) > 100:
-            query = query[:100]
-        
-        # Пробуем русскую Википедию
-        result = search_wikipedia(query, "ru")
-        if result:
-            # Оцениваем релевантность
-            relevance = evaluate_relevance(sentence, result["title"], result["snippet"])
-            
-            if relevance > best_relevance:
-                best_relevance = relevance
-                best_match = result
-                
-                # Рассчитываем confidence на основе релевантности
-                confidence = 0.5 + relevance * 0.4
-                best_confidence = min(confidence, 0.95)
-                
-                # Проверяем ключевые слова для определения статуса
-                sentence_keywords = set(re.findall(r'\b\w{4,}\b', sentence.lower()))
-                title_keywords = set(re.findall(r'\b\w{4,}\b', result["title"].lower()))
-                snippet_keywords = set(re.findall(r'\b\w{4,}\b', result["snippet"].lower()))
-                
-                all_source_keywords = title_keywords | snippet_keywords
-                common_keywords = sentence_keywords & all_source_keywords
-                
-                if len(common_keywords) >= 4 or relevance > 0.8:
-                    verification_status = "confirmed"
-                elif len(common_keywords) >= 2 or relevance > 0.5:
-                    verification_status = "questionable"
-                else:
-                    verification_status = "no_data"
-        
-        # Небольшая задержка между запросами
-        time.sleep(0.3)
-    
-    return FactCheckResult(
-        sentence=sentence,
-        has_factual_content=len(entities) > 0 or len(dates) > 0,
-        extracted_entities=entities,
-        extracted_dates=dates,
-        wiki_match=best_match["title"] if best_match else None,
-        wiki_snippet=best_match["snippet"] if best_match else None,
-        wiki_url=best_match["url"] if best_match else None,
-        verification_status=verification_status,
-        confidence=best_confidence
-    )
 
-def get_risk_level(risk_score: float) -> Tuple[str, str, str]:
-    """Return risk level, color, and emoji based on risk score"""
-    if risk_score < 30:
-        return "Low", "badge-low", "🟢"
-    elif risk_score < 60:
-        return "Medium", "badge-medium", "🟡"
-    else:
-        return "High", "badge-high", "🔴"
-
-def get_fact_status_badge(status: str) -> Tuple[str, str]:
-    """Return badge class and emoji for fact status"""
-    badges = {
-        "confirmed": ("badge-confirmed", "✅"),
-        "questionable": ("badge-questionable", "⚠️"),
-        "debunked": ("badge-debunked", "❌"),
-        "no_data": ("badge-medium", "❓")
-    }
-    return badges.get(status, ("badge-medium", "❓"))
-
-def generate_analysis(sentence: str, similarity: float, risk_score: float, 
-                     fact_result: Optional[FactCheckResult] = None) -> str:
-    """Generate a one-sentence analysis based on semantic metrics and fact check"""
-    
-    semantic_part = ""
-    if risk_score < 30:
-        semantic_part = f"✅ Strongly aligned with question (similarity: {similarity:.2f})"
-    elif risk_score < 60:
-        semantic_part = f"⚡ Moderately relevant (similarity: {similarity:.2f})"
-    else:
-        semantic_part = f"⚠️ Low relevance to question (similarity: {similarity:.2f})"
-    
-    if fact_result and fact_result.has_factual_content:
-        if fact_result.verification_status == "confirmed":
-            return f"{semantic_part} | ✅ Fact-check: Confirmed in Wikipedia sources"
-        elif fact_result.verification_status == "questionable":
-            return f"{semantic_part} | ⚠️ Fact-check: Partially matches sources - verify details"
-        elif fact_result.verification_status == "no_data":
-            return f"{semantic_part} | ❓ Fact-check: No direct sources found for verification"
-    
-    return semantic_part
-
-def _compute_histogram_data(sentence_scores: List[SentenceScore]):
-    sims = np.array([s.similarity for s in sentence_scores], dtype=float)
-    sims_pct = sims * 100.0
-    return sims_pct
-
-# ========== MAIN APPLICATION ==========
 # ========== MAIN APPLICATION ==========
 def main():
     # Custom title
