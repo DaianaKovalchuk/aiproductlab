@@ -257,10 +257,15 @@ def get_model_with_fallback():
     return None
 
 # ========== SEMANTIC ANALYSIS FUNCTIONS ==========
+# ========== SEMANTIC ANALYSIS FUNCTIONS ==========
 def clean_sentence(text: str) -> str:
     """Очищает предложение от маркеров списка и лишних пробелов"""
     # Убираем маркеры списка в начале (1., 2., 3., и т.д.)
     text = re.sub(r'^\s*\d+\.\s*', '', text)
+    # Убираем маркеры списка с табуляцией (1.\t, 2.\t)
+    text = re.sub(r'^\s*\d+\.\t\s*', '', text)
+    # Убираем маркеры списка в формате "1. " в начале строки
+    text = re.sub(r'^\d+\.\s+', '', text)
     # Убираем табуляцию и лишние пробелы
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
@@ -271,25 +276,29 @@ def analyze_semantic_consistency(question: str, answer: str) -> AnalysisResult:
     if model is None:
         raise Exception("Failed to load semantic model")
     
-    # Разбиваем на предложения
+    # Разбиваем на предложения, сохраняя оригинальный текст
     raw_sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s', answer)
+    raw_sentences = [s.strip() for s in raw_sentences if s.strip()]
     
-    # Очищаем каждое предложение от маркеров списка
-    sentences = []
+    # Создаем список очищенных предложений для анализа
+    cleaned_sentences = []
+    original_to_cleaned = {}  # Словарь для маппинга
+    
     for s in raw_sentences:
         cleaned = clean_sentence(s)
         if cleaned:  # Добавляем только непустые предложения
-            sentences.append(cleaned)
+            cleaned_sentences.append(cleaned)
+            original_to_cleaned[s] = cleaned
     
-    if not sentences:
+    if not cleaned_sentences:
         return AnalysisResult(
             sentence_scores=[],
             overall_risk=0.0,
             metadata={"num_sentences": 0}
         )
     
-    # Encode question and all sentences
-    embeddings = model.encode([question] + sentences, convert_to_numpy=True, normalize_embeddings=True)
+    # Encode question and all cleaned sentences
+    embeddings = model.encode([question] + cleaned_sentences, convert_to_numpy=True, normalize_embeddings=True)
     question_emb = embeddings[0]
     sentence_embs = embeddings[1:]
     
@@ -299,21 +308,30 @@ def analyze_semantic_consistency(question: str, answer: str) -> AnalysisResult:
     # Calculate risk scores (inverse of similarity, scaled to 0-100)
     risks = (1 - similarities) * 100
     
-    # Create sentence scores
-    sentence_scores = [
-        SentenceScore(sentence=sentences[i], similarity=float(similarities[i]), risk=float(risks[i]))
-        for i in range(len(sentences))
-    ]
+    # Create sentence scores - сохраняем ОРИГИНАЛЬНЫЕ предложения для отображения
+    sentence_scores = []
+    for i, orig_sentence in enumerate(raw_sentences):
+        # Находим соответствующее очищенное предложение
+        cleaned = original_to_cleaned.get(orig_sentence, orig_sentence)
+        # Находим индекс очищенного предложения в списке для анализа
+        if cleaned in cleaned_sentences:
+            idx = cleaned_sentences.index(cleaned)
+            sentence_scores.append(
+                SentenceScore(
+                    sentence=orig_sentence,  # Сохраняем оригинал для отображения
+                    similarity=float(similarities[idx]), 
+                    risk=float(risks[idx])
+                )
+            )
     
     # Calculate overall risk (weighted average)
-    overall_risk = float(np.mean(risks))
+    overall_risk = float(np.mean(risks)) if risks.size > 0 else 0.0
     
     return AnalysisResult(
         sentence_scores=sentence_scores,
         overall_risk=overall_risk,
-        metadata={"num_sentences": len(sentences)}
+        metadata={"num_sentences": len(sentence_scores)}
     )
-
 def verify_sentence_facts(sentence: str) -> FactCheckResult:
     """Verify facts in a sentence using Wikipedia and Wikidata"""
     
